@@ -32,11 +32,19 @@ def load_config_cached(config_path: str | Path) -> dict[str, Any]:
     return loaded
 
 
+def resolve_config_path(input_payload: dict[str, Any], default_config_path: str | Path) -> str | Path:
+    return input_payload.get("config_path", default_config_path)
+
+
+def get_cached_top_level(config_path: str | Path) -> dict[str, Any]:
+    return load_config_cached(config_path)
+
+
 def resolve_step_config(
     input_payload: dict[str, Any],
     default_config_path: str | Path,
 ) -> dict[str, Any]:
-    config_path = input_payload.get("config_path", default_config_path)
+    config_path = resolve_config_path(input_payload, default_config_path)
     base_config = load_config_cached(config_path)
     override_config = input_payload.get("config", {})
     return deep_merge_dict(base_config, override_config)

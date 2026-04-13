@@ -10,3 +10,4 @@ class StepContext:
     global_step: int
     runtime_config: dict[str, Any]
     full_config: dict[str, Any]
+    cached_config: dict[str, Any]

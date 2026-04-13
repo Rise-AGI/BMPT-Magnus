@@ -5,7 +5,7 @@
 
 ## 1. 设计目标
 
-- 用户只关心任务逻辑：自定义 `forward` 与 `reward`。
+- 用户只关心任务逻辑：自定义 `forward` 与多 reward。
 - 底层统一管理训练细节：模式切换、loss 聚合、性能优化开关。
 - 同一 `step` 协议可覆盖单模型与多模型，避免重复实现。
 
@@ -72,7 +72,7 @@ def step(models, input):
 2. 调用用户自定义 `forward` 生成 logits / sequences。
 3. 按模式计算损失：
    - SFT: supervised loss
-   - RLAIF-LoRA: reward + KL + policy objective
+   - RLAIF-LoRA: weighted reward losses + KL
 4. 聚合多模型损失（如加权求和）。
 5. 输出 `loss`, `metrics`, `aux`。
 
@@ -85,6 +85,9 @@ def custom_forward(models, batch, ctx):
     ...
 
 def reward_fn(outputs, batch, ctx):
+    ...
+
+def reward_fns(outputs, batch, ctx):
     ...
 ```
 
@@ -118,6 +121,7 @@ def reward_fn(outputs, batch, ctx):
 - `scheduler`: 学习率调度参数
 - `train`: 通用训练超参
 - `rlaif`: RLAIF 专用超参（非 RLAIF 模式可忽略）
+- `weighted`: 顶层加权配置（reward/kl 系数）
 - `runtime`: 运行时后端与性能开关
 - `data`: 数据集路径与字段映射
 
@@ -141,7 +145,18 @@ def reward_fn(outputs, batch, ctx):
 - `optimizer.lr`: 学习率（必填）
 - `optimizer.weight_decay`, `optimizer.betas`, `optimizer.eps`: 可选高级参数
 
-### 8.4 `train` 字段协议
+### 8.4 `weighted` 字段协议
+
+- `weighted.enabled`: 是否启用加权聚合
+- `weighted.normalize_weights`: 固定为 `false`
+- `weighted.weights`: 加权系数，要求包含 `kl`
+
+约束：
+
+- 除 `kl` 外，其余 key 必须与 `input["reward_fns"]` key 严格一致。
+- 系数按绝对值使用，不做归一化。
+
+### 8.5 `train` 字段协议
 
 - `per_device_batch_size`
 - `gradient_accumulation_steps`
@@ -151,21 +166,21 @@ def reward_fn(outputs, batch, ctx):
 - `log_every_steps`
 - `checkpoint_every_steps`
 
-### 8.5 `runtime` 字段协议
+### 8.6 `runtime` 字段协议
 
 - `backend`: `accelerate`（首版默认）
 - `compile`: 是否启用 `torch.compile`
 - `gradient_checkpointing`: 是否启用梯度检查点
 - `flash_attention`: 是否启用 flash attention（若模型/环境支持）
 
-### 8.6 覆盖优先级
+### 8.7 覆盖优先级
 
 同一字段冲突时，按以下优先级生效：
 
 1. `input["config"]`（当前 step 动态覆盖）
 2. `train/config.yaml`（全局默认）
 
-### 8.7 示例
+### 8.8 示例
 
 参见：`train/config.yaml`
 
@@ -196,7 +211,7 @@ def step(models, input):
 
 后续实现顺序：
 
-1. 增加多模型调度策略（交替/加权）。
+1. 持续完善 weighted 多 reward 训练策略。
 2. 接入真实 reward model 推理流程。
 3. 增加性能 AB 基准，验证 <=5% 目标。
 
@@ -209,6 +224,8 @@ def step(models, input):
 - `sft_step(...)`: SFT 算法逻辑（用户可直接修改）
 - `rlaif_lora_step(...)`: RLAIF-LoRA 算法逻辑（用户可直接修改）
 - `build_models_from_config(config, loader_fn)`: 按配置标签构建模型字典
+- `ctx.cached_config`: 缓存中的原始配置
+- `ctx.full_config`: 当前 step 生效配置（含 override）
 
 底层工具位于：`util/train_utils.py`
 
@@ -216,7 +233,7 @@ def step(models, input):
 
 - `config_path`: 指定配置文件路径
 - `forward_fn`: 自定义 forward 回调
-- `reward_fn`: 自定义 reward 回调（RLAIF 模式）
+- `reward_fns`: 多奖励回调字典（RLAIF 模式）
 - `global_step`: 当前全局 step（用于上下文）
 - `loader_fn`: 当 `models=None` 时用于加载模型
 
@@ -236,8 +253,18 @@ result = step(
         "config": {"optimizer": {"lr": 1e-5}},
         "loader_fn": loader_fn,
         "forward_fn": custom_forward,
+        "reward_fns": {
+            "reward": custom_reward_fn,
+        },
     },
 )
 loss = result["loss"]
 metrics = result["metrics"]
 ```
+
+## 11. 最小可运行示例
+
+- 双 reward weighted 示例：`train/example_weighted_step.py`
+- 示例展示：
+  - `reward_fns` 与 `weighted.weights`（除 `kl`）严格同名
+  - `ctx.cached_config` 与 `ctx.full_config` 的差异
