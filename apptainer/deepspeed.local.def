@@ -9,11 +9,11 @@ From: base_pytorch.sif
 %post
     set -e
     apt-get update
-    apt-get install -y --no-install-recommends git build-essential ninja-build
+    apt-get install -y --no-install-recommends git
     rm -rf /var/lib/apt/lists/*
 
     pip install --no-cache-dir -r /opt/brisk/requirements.common.txt -r /opt/brisk/requirements.torch.txt
-    DS_BUILD_OPS=1 pip install --no-cache-dir -r /opt/brisk/requirements.deepspeed.txt
+    DS_BUILD_OPS=0 pip install --no-cache-dir -r /opt/brisk/requirements.deepspeed.txt
 
 %environment
     export PYTHONDONTWRITEBYTECODE=1
