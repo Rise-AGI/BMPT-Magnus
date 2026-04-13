@@ -3,6 +3,7 @@ from __future__ import annotations
 import torch
 
 from train.def_train import step
+from train.def_train import rlaif_lora_step
 
 
 class TinyPolicy(torch.nn.Module):
@@ -52,8 +53,8 @@ def main() -> None:
     result = step(
         models=models,
         input={
-            "mode": "rlaif_lora",
             "batch": batch,
+            "step_impl": rlaif_lora_step,
             "forward_fn": forward_fn,
             "reward_fns": {
                 "reward_helpfulness": reward_helpfulness,

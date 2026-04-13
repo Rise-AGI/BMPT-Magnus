@@ -64,7 +64,6 @@ def main() -> None:
             models=models,
             batch=batch,
             extra_input={
-                "mode": "sft",
                 "config": {
                     "weighted": {
                         "enabled": True,

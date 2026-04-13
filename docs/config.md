@@ -122,7 +122,6 @@ runtime:
 
 - `training_backend` 控制正式训练入口走 PyTorch 或 DeepSpeed。
 - 使用 DeepSpeed 时会读取 `deepspeed_config_path` 指向的外部 JSON。
-- 启动时会自动用 `train.per_device_batch_size`、`train.gradient_accumulation_steps`、`train.grad_clip_norm` 覆盖 DeepSpeed JSON 对应项。
 
 ## `data`
 
