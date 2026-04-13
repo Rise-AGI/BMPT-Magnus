@@ -264,7 +264,13 @@ metrics = result["metrics"]
 
 ## 11. 最小可运行示例
 
-- 双 reward weighted 示例：`train/example_weighted_step.py`
+- 双 reward weighted 示例：`examples/example_weighted_step.py`
 - 示例展示：
   - `reward_fns` 与 `weighted.weights`（除 `kl`）严格同名
   - `ctx.cached_config` 与 `ctx.full_config` 的差异
+
+## 12. 计算核心（src/core）
+
+- `src/core/engine.py`: 统一训练执行器（反传、梯度累计、优化器步进、调度器步进）
+- `src/core/optim.py`: 优化器与学习率调度器构建
+- `examples/example_engine_loop.py`: 使用 `TrainingEngine` 驱动 `train/def_train.py::step` 的最小示例

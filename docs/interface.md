@@ -115,5 +115,5 @@ weighted:
 
 ## 9. 最小运行示例
 
-- 示例脚本：`train/example_weighted_step.py`
-- 运行方式：`uv run python train/example_weighted_step.py`
+- 示例脚本：`examples/example_weighted_step.py`
+- 运行方式：`uv run python examples/example_weighted_step.py`

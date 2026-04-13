@@ -6,6 +6,7 @@ from typing import Any, Callable
 import torch
 
 from src.core.config import deep_merge_dict, load_yaml_config
+from src.core.types import StepContext
 
 
 _CONFIG_CACHE: dict[str, Any] = {
@@ -119,3 +120,34 @@ def resolve_callbacks(
     forward_fn = input_payload.get("forward_fn", default_forward)
     reward_fn = input_payload.get("reward_fn", default_reward)
     return forward_fn, reward_fn
+
+
+def resolve_mode(input_payload: dict[str, Any], merged_config: dict[str, Any]) -> str:
+    return input_payload.get("mode", merged_config.get("mode", "sft"))
+
+
+def resolve_global_step(input_payload: dict[str, Any]) -> int:
+    return int(input_payload.get("global_step", 0))
+
+
+def build_step_context(
+    mode: str,
+    global_step: int,
+    merged_config: dict[str, Any],
+    cached_config: dict[str, Any],
+) -> StepContext:
+    runtime_cfg = merged_config.get("runtime", {})
+    return StepContext(
+        mode=mode,
+        global_step=global_step,
+        runtime_config=runtime_cfg,
+        full_config=merged_config,
+        cached_config=cached_config,
+    )
+
+
+def resolve_reward_fns(
+    input_payload: dict[str, Any],
+    reward_fn: Callable[..., torch.Tensor],
+) -> dict[str, Callable[..., torch.Tensor]]:
+    return input_payload.get("reward_fns") or {"reward": reward_fn}
