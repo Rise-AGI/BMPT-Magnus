@@ -273,4 +273,57 @@ metrics = result["metrics"]
 
 - `src/core/engine.py`: 统一训练执行器（反传、梯度累计、优化器步进、调度器步进）
 - `src/core/optim.py`: 优化器与学习率调度器构建
+- `src/core/distributed.py`: 分布式初始化、DDP 包装、跨 rank 指标聚合
 - `examples/example_engine_loop.py`: 使用 `TrainingEngine` 驱动 `train/def_train.py::step` 的最小示例
+
+## 13. 正式训练入口（多 GPU / 集群）
+
+- 根入口：`main.py`
+- 默认执行：`python main.py --entry train`
+- 支持 `torchrun` 启动多 GPU / 多机训练
+- 支持 `runtime.training_backend` 在 `pytorch` / `deepspeed` 间切换
+
+单机多卡示例：
+
+```bash
+torchrun --nproc_per_node=8 main.py --entry train --config train/config.yaml
+```
+
+双机示例（节点 0）：
+
+```bash
+torchrun --nnodes=2 --node_rank=0 --nproc_per_node=8 --master_addr=<master_ip> --master_port=29500 main.py --entry train --config train/config.yaml
+```
+
+双机示例（节点 1）：
+
+```bash
+torchrun --nnodes=2 --node_rank=1 --nproc_per_node=8 --master_addr=<master_ip> --master_port=29500 main.py --entry train --config train/config.yaml
+```
+
+入口参数：
+
+- `--loader module:function`: 模型加载函数（默认 `train.default_components:load_model`）
+- `--dataloader module:function`: 数据构建函数（默认 `train.default_components:build_dataloader`）
+- `--max-steps`: 覆盖配置中的训练步数
+- `--backend pytorch|deepspeed`: 覆盖 `config.yaml` 中的后端设置
+
+后端切换配置（`train/config.yaml`）：
+
+```yaml
+runtime:
+  training_backend: pytorch
+  deepspeed_config_path: ../configs/deepspeed_zero2.json
+```
+
+DeepSpeed 路线（读取外部 JSON）示例：
+
+```bash
+torchrun --nproc_per_node=8 main.py --entry train --backend deepspeed --config train/config.yaml
+```
+
+Qwen 7B + LoRA（单机多卡）示例：
+
+```bash
+torchrun --nproc_per_node=8 main.py --entry train --config train/config.yaml --loader train.qwen_components:load_model --dataloader train.qwen_components:build_dataloader
+```
