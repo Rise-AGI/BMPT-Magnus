@@ -95,15 +95,15 @@ torchrun --nproc_per_node=8 main.py --entry train --backend pytorch --config tra
 
 ## 8. 组件选择
 
-默认组件（快速 smoke test）：
-
-- `util.components.default_components:load_model`
-- `util.components.default_components:build_dataloader`
-
-Qwen 组件（生产训练）：
+默认组件（生产训练）：
 
 - `util.components.qwen_components:load_model`
 - `util.components.qwen_components:build_dataloader`
+
+备用组件（快速 smoke test）：
+
+- `util.components.default_components:load_model`
+- `util.components.default_components:build_dataloader`
 
 示例：
 

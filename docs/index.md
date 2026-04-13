@@ -301,8 +301,8 @@ torchrun --nnodes=2 --node_rank=1 --nproc_per_node=8 --master_addr=<master_ip> -
 
 入口参数：
 
-- `--loader module:function`: 模型加载函数（默认 `util.components.default_components:load_model`）
-- `--dataloader module:function`: 数据构建函数（默认 `util.components.default_components:build_dataloader`）
+- `--loader module:function`: 模型加载函数（默认 `util.components.qwen_components:load_model`）
+- `--dataloader module:function`: 数据构建函数（默认 `util.components.qwen_components:build_dataloader`）
 - `--max-steps`: 覆盖配置中的训练步数
 - `--backend pytorch|deepspeed`: 覆盖 `config.yaml` 中的后端设置
 - `--save-final`: 训练结束额外保存 `latest` checkpoint
