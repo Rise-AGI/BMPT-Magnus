@@ -18,20 +18,18 @@ step(models, input) -> dict[str, Any]
 ## 2. models 协议
 
 - key 由 `config.yaml` 的 `models` 节点决定。
-- `policy` 必须存在。
-- 其他标签（如 `reference`, `reward`）在 `enabled: true` 时应提供。
 - 当 `models is None` 时，调用 `loader_fn(label, spec, config)` 构建模型。
 
 ## 3. input 协议
 
 - `input["batch"]`: `dict[str, torch.Tensor]`
-- `input["mode"]`: `"sft" | "rlaif_lora"`（可选，默认取配置）
 - `input["config_path"]`: 配置路径（可选）
 - `input["config"]`: step 级配置覆盖（可选）
 - `input["forward_fn"]`: 前向函数（可选）
 - `input["reward_fns"]`: 多奖励函数字典（`rlaif_lora` 推荐）
 - `input["reward_fn"]`: 单奖励函数（兼容字段）
 - `input["loader_fn"]`: 构建模型函数（当 `models is None` 时可选）
+- `input["step_impl"]`: 训练步骤实现函数（可选，默认使用 SFT 模板）
 
 ## 4. forward_fn 协议
 
@@ -95,6 +93,7 @@ reward_fn(outputs, batch, ctx) -> torch.Tensor
 - 配置按路径全局缓存；同一路径不会重复读取磁盘。
 - `StepContext.cached_config` 暴露缓存中的原始配置（未叠加 step override）。
 - `StepContext.full_config` 暴露当前 step 生效配置（已叠加 `input["config"]`）。
+- 训练流程不再使用顶层 `mode` 开关；算法路由由 `step_impl` 决定。
 - 不做输入结构兜底判断，调用方必须严格遵守本协议。
 - 协议变更时必须先更新本文件，再更新实现。
 

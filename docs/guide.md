@@ -6,7 +6,7 @@
 
 - 算法层：`train/def_train.py`（你写训练目标和 loss）。
 - 执行层：`main.py` + `src/core/`（框架负责分布式、反传、优化器、checkpoint）。
-- 配置层：`train/config.yaml`（你调模式、学习率、后端和路径）。
+- 配置层：`train/config.yaml`（你调学习率、后端和路径）。
 
 你通常只需要改两处：
 
@@ -27,7 +27,6 @@ uv pip install torch transformers peft deepspeed pyyaml
 
 在 `train/config.yaml` 中重点看这些字段：
 
-- `mode`: `sft` 或 `rlaif_lora`
 - `optimizer.lr`
 - `train.per_device_batch_size`
 - `train.gradient_accumulation_steps`
@@ -39,10 +38,7 @@ uv pip install torch transformers peft deepspeed pyyaml
 
 ## 4. 实现你的算法
 
-在 `train/def_train.py` 里实现：
-
-- `sft_step(...)`
-- `rlaif_lora_step(...)`
+在 `train/def_train.py` 里实现你的 `step_impl(...)`（可复用 `sft_step/rlaif_lora_step` 作为模板）。
 
 接口约定：
 
@@ -50,6 +46,7 @@ uv pip install torch transformers peft deepspeed pyyaml
   - SFT 返回 `{"loss": tensor}`
   - RLAIF 返回 `{"policy_logits": ..., "labels": ..., "reference_logits": ...}`
 - `reward_fns` 是字典，key 必须与 `weighted.weights`（除 `kl`）一致。
+- 训练入口会把 `models` 按 `{key: model}` 传给 `step_impl`，不再通过顶层 `mode` 做路由。
 
 ## 5. 启动训练
 

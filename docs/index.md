@@ -55,7 +55,7 @@ def step(models, input):
 `input` 至少应包含一组 batch 张量，推荐字段：
 
 - `batch`: `dict[str, Tensor]`，例如 `input_ids`, `attention_mask`, `labels`
-- `mode`: `str`，如 `"sft"`, `"rlaif_lora"`
+- `step_impl`: 自定义训练步骤实现函数（可选，不传则走默认 SFT 模板）
 - `config`: `dict[str, Any]`，本 step 的超参覆盖（可选）
 
 ## 4. 返回值约定
@@ -70,12 +70,10 @@ def step(models, input):
 
 `step` 内部推荐按以下顺序组织（在 `train/def_train.py` 中实现）：
 
-1. 解析 `mode`，构造统一上下文。
+1. 构造统一上下文。
 2. 调用用户自定义 `forward` 生成 logits / sequences。
-3. 按模式计算损失：
-   - SFT: supervised loss
-   - RLAIF-LoRA: weighted reward losses + KL
-4. 聚合多模型损失（如加权求和）。
+3. 在 `step_impl` 中计算损失（可复用 `sft_step` 或 `rlaif_lora_step` 模板）。
+4. 聚合多模型损失（如 weighted）。
 5. 输出 `loss`, `metrics`, `aux`。
 
 ## 6. 用户扩展点
@@ -93,7 +91,7 @@ def reward_fns(outputs, batch, ctx):
     ...
 ```
 
-其中 `ctx` 可包含：`mode`, `global_step`, `device`, `dtype`, `runtime_config`。
+其中 `ctx` 可包含：`global_step`, `runtime_config`, `full_config`, `cached_config`。
 
 ## 7. 性能基线约束
 
@@ -117,7 +115,6 @@ def reward_fns(outputs, batch, ctx):
 
 ### 8.1 顶层字段
 
-- `mode`: `sft` 或 `rlaif_lora`
 - `seed`: 随机种子
 - `models`: 模型加载与可训练性
 - `optimizer`: 优化器参数（含学习率）
@@ -133,14 +130,11 @@ def reward_fns(outputs, batch, ctx):
 - `models.policy.path`: 主模型路径（必填）
 - `models.policy.trainable`: 是否更新参数
 - `models.policy.lora.enabled`: 是否启用 LoRA
-- `models.reference.enabled`: 是否启用 reference model
-- `models.reward.enabled`: 是否启用 reward model
 
 约束：
 
-- `mode == "sft"` 时，`policy` 必须存在。
-- `mode == "rlaif_lora"` 时，`policy` 必须开启 LoRA，且建议开启 `reference` 与 `reward`。
-- `enabled: true` 的标签会进入本次 step 期望模型 key 集合。
+- `models` 仅用于声明要加载的 key。
+- 训练入口按 key 调用 `loader_fn` 构建 `{key: model}` 并传入 `step`。
 
 ### 8.3 `optimizer` 字段协议
 
@@ -252,7 +246,7 @@ result = step(
     models=None,
     input={
         "batch": batch,
-        "mode": "sft",
+        "step_impl": sft_step,
         "config_path": "train/config.yaml",
         "config": {"optimizer": {"lr": 1e-5}},
         "loader_fn": loader_fn,
