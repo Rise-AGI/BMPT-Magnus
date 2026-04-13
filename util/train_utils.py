@@ -57,15 +57,7 @@ def normalize_models(models: Any) -> dict[str, torch.nn.Module]:
 
 def expected_model_keys(config: dict[str, Any]) -> list[str]:
     model_cfg = config.get("models", {})
-
-    keys: list[str] = []
-    for label, spec in model_cfg.items():
-        if label == "policy":
-            keys.append(label)
-            continue
-        if spec.get("enabled", False):
-            keys.append(label)
-    return keys
+    return list(model_cfg.keys())
 
 
 def validate_models_by_config(models: dict[str, torch.nn.Module], config: dict[str, Any]) -> None:
@@ -122,23 +114,17 @@ def resolve_callbacks(
     return forward_fn, reward_fn
 
 
-def resolve_mode(input_payload: dict[str, Any], merged_config: dict[str, Any]) -> str:
-    return input_payload.get("mode", merged_config.get("mode", "sft"))
-
-
 def resolve_global_step(input_payload: dict[str, Any]) -> int:
     return int(input_payload.get("global_step", 0))
 
 
 def build_step_context(
-    mode: str,
     global_step: int,
     merged_config: dict[str, Any],
     cached_config: dict[str, Any],
 ) -> StepContext:
     runtime_cfg = merged_config.get("runtime", {})
     return StepContext(
-        mode=mode,
         global_step=global_step,
         runtime_config=runtime_cfg,
         full_config=merged_config,

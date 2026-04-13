@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 from importlib import import_module
 from pathlib import Path
 from typing import Any, Callable, cast
@@ -133,6 +134,18 @@ def _resolve_deepspeed_config_path(config: dict[str, Any], config_path: str | Pa
     return str(resolved)
 
 
+def _load_deepspeed_config(config: dict[str, Any], config_path: str | Path) -> dict[str, Any]:
+    ds_path = _resolve_deepspeed_config_path(config, config_path)
+    with Path(ds_path).open("r", encoding="utf-8") as handle:
+        ds_config = json.load(handle)
+
+    train_cfg = config.get("train", {})
+    ds_config["train_micro_batch_size_per_gpu"] = int(train_cfg.get("per_device_batch_size", 1))
+    ds_config["gradient_accumulation_steps"] = int(train_cfg.get("gradient_accumulation_steps", 1))
+    ds_config["gradient_clipping"] = float(train_cfg.get("grad_clip_norm", 1.0))
+    return ds_config
+
+
 def _run_pytorch_backend(
     models: dict[str, torch.nn.Module],
     data_iterable: Any,
@@ -155,10 +168,8 @@ def _run_pytorch_backend(
 
     log_every = int(train_cfg.get("log_every_steps", 10))
     checkpoint_every, checkpoint_dir = _checkpoint_settings(config)
-    mode = config.get("mode", "sft")
     last_step = 0
     static_step_input = {
-        "mode": mode,
         "config_path": str(config_path),
         "_cached_config": config,
         "_merged_config": config,
@@ -217,14 +228,14 @@ def _run_deepspeed_backend(
         raise ImportError("deepspeed backend requires `deepspeed` package") from exc
 
     train_cfg = config.get("train", {})
-    ds_config_path = _resolve_deepspeed_config_path(config, config_path)
+    ds_config = _load_deepspeed_config(config, config_path)
 
     policy_model = models["policy"].to(dist_ctx.device)
     trainable_parameters = [param for param in policy_model.parameters() if param.requires_grad]
     ds_engine, _, _, _ = deepspeed.initialize(
         model=policy_model,
         model_parameters=trainable_parameters,
-        config=ds_config_path,
+        config=ds_config,
     )
 
     models["policy"] = ds_engine
@@ -235,10 +246,8 @@ def _run_deepspeed_backend(
 
     log_every = int(train_cfg.get("log_every_steps", 10))
     checkpoint_every, checkpoint_dir = _checkpoint_settings(config)
-    mode = config.get("mode", "sft")
     last_step = 0
     static_step_input = {
-        "mode": mode,
         "config_path": str(config_path),
         "_cached_config": config,
         "_merged_config": config,
