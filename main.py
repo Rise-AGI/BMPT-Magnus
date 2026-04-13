@@ -37,12 +37,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--loader",
-        default="util.components.default_components:load_model",
+        default="util.components.qwen_components:load_model",
         help="Model loader symbol path module:function",
     )
     parser.add_argument(
         "--dataloader",
-        default="util.components.default_components:build_dataloader",
+        default="util.components.qwen_components:build_dataloader",
         help="Dataloader builder symbol path module:function",
     )
     parser.add_argument(
