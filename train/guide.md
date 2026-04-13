@@ -1,6 +1,7 @@
 # Brisk Post-Training Guide
 
 本文档定义 `train/def_train.py` 入口的 `step(models, input)` 协议，作为 SFT / RLAIF-LoRA / 多模型联合训练的统一接口。
+严格字段与维度约束请以根目录 `interface.md` 为准。
 
 ## 1. 设计目标
 
@@ -10,8 +11,9 @@
 
 ## 2. 目录边界
 
-- `src/`: 内核实现（训练引擎、模式插件、多模型调度、性能工具）。
-- `train/`: 用户逻辑（数据处理、forward/reward 定义、训练入口与配置）。
+- `src/`: 内核实现（配置加载、上下文结构、调度/性能工具等通用能力）。
+- `util/`: 通用工具（配置缓存、模型校验/构建、回调解析）。
+- `train/`: 用户逻辑（SFT/RLAIF 算法、forward/reward 定义、训练入口与配置）。
 
 ## 3. step 协议
 
@@ -36,10 +38,15 @@ def step(models, input):
 ### 3.1 `models` 约定
 
 - 单模型：可直接传 `nn.Module`，内部转换为 `{"policy": model}`。
-- 多模型：推荐使用字典，常见键：
+- 多模型：推荐使用字典，key 默认由 `config.yaml` 的 `models` 标签决定，常见键：
   - `policy`: 待优化主模型
   - `reference`: 参考模型（如 KL 约束）
   - `reward`: 奖励模型（RLAIF）
+
+约束：
+
+- `step` 会按配置校验传入的 `models` key。
+- 当传入 `models=None` 时，`step` 会尝试按配置标签构建模型（需提供 `loader_fn`）。
 
 ### 3.2 `input` 约定
 
@@ -59,7 +66,7 @@ def step(models, input):
 
 ## 5. 推荐执行流程
 
-`step` 内部推荐按以下顺序组织：
+`step` 内部推荐按以下顺序组织（在 `train/def_train.py` 中实现）：
 
 1. 解析 `mode`，构造统一上下文。
 2. 调用用户自定义 `forward` 生成 logits / sequences。
@@ -71,7 +78,7 @@ def step(models, input):
 
 ## 6. 用户扩展点
 
-建议在 `train/` 下提供以下函数，并由 `step` 调用：
+建议在 `train/def_train.py` 中直接维护以下函数，并由 `step` 调用：
 
 ```python
 def custom_forward(models, batch, ctx):
@@ -100,6 +107,7 @@ def reward_fn(outputs, batch, ctx):
 ## 8. 配置协议（`train/config.yaml`）
 
 训练入口默认从 `train/config.yaml` 读取基础参数，`input["config"]` 可在 step 级别覆盖。
+配置文件会被全局缓存；只有当 `config_path` 改变时才重新加载。
 
 ### 8.1 顶层字段
 
@@ -125,6 +133,7 @@ def reward_fn(outputs, batch, ctx):
 
 - `mode == "sft"` 时，`policy` 必须存在。
 - `mode == "rlaif_lora"` 时，`policy` 必须开启 LoRA，且建议开启 `reference` 与 `reward`。
+- `enabled: true` 的标签会进入本次 step 期望模型 key 集合。
 
 ### 8.3 `optimizer` 字段协议
 
@@ -197,6 +206,11 @@ def step(models, input):
 
 - `load_config(config_path=None)`: 读取配置文件（默认 `train/config.yaml`）
 - `step(models, input)`: 统一 step 执行接口
+- `sft_step(...)`: SFT 算法逻辑（用户可直接修改）
+- `rlaif_lora_step(...)`: RLAIF-LoRA 算法逻辑（用户可直接修改）
+- `build_models_from_config(config, loader_fn)`: 按配置标签构建模型字典
+
+底层工具位于：`util/train_utils.py`
 
 `input` 可选扩展字段：
 
@@ -204,17 +218,23 @@ def step(models, input):
 - `forward_fn`: 自定义 forward 回调
 - `reward_fn`: 自定义 reward 回调（RLAIF 模式）
 - `global_step`: 当前全局 step（用于上下文）
+- `loader_fn`: 当 `models=None` 时用于加载模型
 
 示例：
 
 ```python
+def loader_fn(label, spec, config):
+    # 例如: 使用 transformers 加载 spec["path"]
+    return loaded_model
+
 result = step(
-    models=models,
+    models=None,
     input={
         "batch": batch,
         "mode": "sft",
         "config_path": "train/config.yaml",
         "config": {"optimizer": {"lr": 1e-5}},
+        "loader_fn": loader_fn,
         "forward_fn": custom_forward,
     },
 )
