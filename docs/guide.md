@@ -1,7 +1,7 @@
 # Brisk Post-Training Guide
 
 本文档定义 `train/def_train.py` 入口的 `step(models, input)` 协议，作为 SFT / RLAIF-LoRA / 多模型联合训练的统一接口。
-严格字段与维度约束请以根目录 `interface.md` 为准。
+严格字段与维度约束请以 `docs/interface.md` 为准。
 
 ## 1. 设计目标
 
