@@ -30,6 +30,9 @@ apptainer run --nv --bind $(pwd):/workspace brisk-torch.sif
 apptainer run --nv --bind $(pwd):/workspace brisk-deepspeed.sif
 ```
 
+DeepSpeed 镜像默认不编译自定义算子（`DS_BUILD_OPS=0`），避免编译依赖问题（如 `oneapi/ccl.hpp` 缺失）。
+如需启用自定义算子编译，可手动改回 `DS_BUILD_OPS=1` 并补齐对应编译环境。
+
 ## 说明
 
 - 默认工作目录为 `/workspace`（通过 `--bind $(pwd):/workspace` 挂载当前项目）。
