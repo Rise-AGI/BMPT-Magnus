@@ -59,7 +59,7 @@ def _require_hf() -> tuple[Any, Any, Any, Any, Any]:
         from transformers import AutoModelForCausalLM, AutoTokenizer
     except Exception as exc:
         raise ImportError(
-            "`train.qwen_components` requires `transformers` and `peft`. "
+            "`util.components.qwen_components` requires `transformers` and `peft`. "
             "Please install them in your uv environment."
         ) from exc
 

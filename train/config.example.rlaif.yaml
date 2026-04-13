@@ -47,6 +47,7 @@ train:
   mixed_precision: bf16
   grad_clip_norm: 1.0
   checkpoint_every_steps: 500
+  checkpoint_dir: checkpoints
   log_every_steps: 10
 
 rlaif:

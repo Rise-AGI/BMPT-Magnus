@@ -120,8 +120,13 @@ def step(models, input):
     """
 
     config_path = resolve_config_path(input, _DEFAULT_CONFIG_PATH)
-    cached_config = get_cached_top_level(config_path)
-    merged_config = resolve_step_config(input, _DEFAULT_CONFIG_PATH)
+    cached_config = input.get("_cached_config")
+    if cached_config is None:
+        cached_config = get_cached_top_level(config_path)
+
+    merged_config = input.get("_merged_config")
+    if merged_config is None:
+        merged_config = resolve_step_config(input, _DEFAULT_CONFIG_PATH)
 
     mode = resolve_mode(input, merged_config)
     global_step = resolve_global_step(input)

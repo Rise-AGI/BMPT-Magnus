@@ -165,6 +165,7 @@ def reward_fns(outputs, batch, ctx):
 - `grad_clip_norm`
 - `log_every_steps`
 - `checkpoint_every_steps`
+- `checkpoint_dir`
 
 ### 8.6 `runtime` 字段协议
 
@@ -303,10 +304,11 @@ torchrun --nnodes=2 --node_rank=1 --nproc_per_node=8 --master_addr=<master_ip> -
 
 入口参数：
 
-- `--loader module:function`: 模型加载函数（默认 `train.default_components:load_model`）
-- `--dataloader module:function`: 数据构建函数（默认 `train.default_components:build_dataloader`）
+- `--loader module:function`: 模型加载函数（默认 `util.components.default_components:load_model`）
+- `--dataloader module:function`: 数据构建函数（默认 `util.components.default_components:build_dataloader`）
 - `--max-steps`: 覆盖配置中的训练步数
 - `--backend pytorch|deepspeed`: 覆盖 `config.yaml` 中的后端设置
+- `--save-final`: 训练结束额外保存 `latest` checkpoint
 
 后端切换配置（`train/config.yaml`）：
 
@@ -322,8 +324,13 @@ DeepSpeed 路线（读取外部 JSON）示例：
 torchrun --nproc_per_node=8 main.py --entry train --backend deepspeed --config train/config.yaml
 ```
 
+Checkpoint 配置：
+
+- `train.checkpoint_every_steps`: 每隔多少 step 保存一次（`<=0` 表示不保存）
+- `train.checkpoint_dir`: checkpoint 目录（默认 `checkpoints`）
+
 Qwen 7B + LoRA（单机多卡）示例：
 
 ```bash
-torchrun --nproc_per_node=8 main.py --entry train --config train/config.yaml --loader train.qwen_components:load_model --dataloader train.qwen_components:build_dataloader
+torchrun --nproc_per_node=8 main.py --entry train --config train/config.yaml --loader util.components.qwen_components:load_model --dataloader util.components.qwen_components:build_dataloader
 ```
