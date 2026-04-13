@@ -1,0 +1,22 @@
+Bootstrap: docker
+From: pytorch/pytorch:2.3.1-cuda12.1-cudnn8-runtime
+
+%files
+    requirements.common.txt /opt/brisk/requirements.common.txt
+    requirements.torch.txt /opt/brisk/requirements.torch.txt
+
+%post
+    set -e
+    apt-get update
+    apt-get install -y --no-install-recommends git
+    rm -rf /var/lib/apt/lists/*
+
+    pip install --no-cache-dir -r /opt/brisk/requirements.common.txt -r /opt/brisk/requirements.torch.txt
+
+%environment
+    export PYTHONDONTWRITEBYTECODE=1
+    export PYTHONUNBUFFERED=1
+
+%runscript
+    cd /workspace
+    exec python main.py --entry train --backend pytorch --config train/config.yaml "$@"
