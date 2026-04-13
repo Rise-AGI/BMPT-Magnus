@@ -5,7 +5,6 @@
 ## 顶层结构
 
 ```yaml
-mode: sft | rlaif_lora
 seed: 42
 
 models: {...}
@@ -18,14 +17,9 @@ runtime: {...}
 data: {...}
 ```
 
-## `mode`
-
-- `sft`: 监督微调模式
-- `rlaif_lora`: RLAIF + LoRA 模式
-
 ## `models`
 
-用于声明需要加载的模型标签与参数。
+用于声明需要加载的模型标签与参数。训练入口只按 key 加载并组装 `{key: model}` 传入 `step`。
 
 ```yaml
 models:
@@ -40,18 +34,16 @@ models:
       target_modules: [q_proj, k_proj, v_proj, o_proj]
 
   reference:
-    enabled: false
     path: Qwen/Qwen2.5-7B-Instruct
     trainable: false
 
   reward:
-    enabled: false
     path: null
     trainable: false
 ```
 
-- `policy` 为必需模型标签。
-- `enabled: true` 的标签会被视为期望加载的模型。
+- `models` 只用于声明“要加载哪些 key”。
+- 训练入口会按 key 逐一调用 `loader_fn` 构建 `{key: model}`。
 
 ## `optimizer`
 
@@ -130,6 +122,7 @@ runtime:
 
 - `training_backend` 控制正式训练入口走 PyTorch 或 DeepSpeed。
 - 使用 DeepSpeed 时会读取 `deepspeed_config_path` 指向的外部 JSON。
+- 启动时会自动用 `train.per_device_batch_size`、`train.gradient_accumulation_steps`、`train.grad_clip_norm` 覆盖 DeepSpeed JSON 对应项。
 
 ## `data`
 
