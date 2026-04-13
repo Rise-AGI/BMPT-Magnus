@@ -1,4 +1,3 @@
-mode: rlaif_lora
 seed: 42
 
 models:
@@ -17,12 +16,10 @@ models:
         - o_proj
 
   reference:
-    enabled: true
     path: Qwen/Qwen2.5-7B-Instruct
     trainable: false
 
   reward:
-    enabled: true
     path: OpenAssistant/reward-model-deberta-v3-large-v2
     trainable: false
 

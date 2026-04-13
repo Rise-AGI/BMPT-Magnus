@@ -1,4 +1,3 @@
-mode: sft
 seed: 42
 
 models:
@@ -17,12 +16,10 @@ models:
         - o_proj
 
   reference:
-    enabled: false
     path: Qwen/Qwen2.5-7B-Instruct
     trainable: false
 
   reward:
-    enabled: false
     path: null
     trainable: false
 

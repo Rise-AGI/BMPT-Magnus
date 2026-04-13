@@ -14,7 +14,6 @@ from util.train_utils import (
     resolve_config_path,
     resolve_callbacks,
     resolve_global_step,
-    resolve_mode,
     resolve_models,
     resolve_reward_fns,
     resolve_step_config,
@@ -46,7 +45,7 @@ def sft_step(
     return {
         "loss": loss,
         "metrics": {"loss/sft": float(loss.detach().item())},
-        "aux": {"mode": ctx.mode},
+        "aux": {},
     }
 
 
@@ -104,8 +103,19 @@ def rlaif_lora_step(
     return {
         "loss": total_loss,
         "metrics": metrics,
-        "aux": {"mode": ctx.mode},
+        "aux": {},
     }
+
+
+def _default_step_impl(
+    models: dict[str, torch.nn.Module],
+    batch: dict[str, Any],
+    ctx: Any,
+    forward_fn: Callable[..., Any],
+    reward_fns: dict[str, Callable[..., torch.Tensor]],
+) -> dict[str, Any]:
+    _ = reward_fns
+    return sft_step(models=models, batch=batch, ctx=ctx, forward_fn=forward_fn)
 
 
 def step(models, input):
@@ -128,10 +138,8 @@ def step(models, input):
     if merged_config is None:
         merged_config = resolve_step_config(input, _DEFAULT_CONFIG_PATH)
 
-    mode = resolve_mode(input, merged_config)
     global_step = resolve_global_step(input)
     ctx = build_step_context(
-        mode=mode,
         global_step=global_step,
         merged_config=merged_config,
         cached_config=cached_config,
@@ -142,17 +150,12 @@ def step(models, input):
     batch = input["batch"]
     forward_fn, reward_fn = resolve_callbacks(input, default_forward, default_reward)
     reward_fns = resolve_reward_fns(input, reward_fn)
+    step_impl = input.get("step_impl", _default_step_impl)
 
-    if mode == "sft":
-        return sft_step(model_dict, batch, ctx, forward_fn=forward_fn)
-
-    if mode == "rlaif_lora":
-        return rlaif_lora_step(
-            model_dict,
-            batch,
-            ctx,
-            forward_fn=forward_fn,
-            reward_fns=reward_fns,
-        )
-
-    raise ValueError(f"Unsupported mode: {mode}")
+    return step_impl(
+        model_dict,
+        batch,
+        ctx,
+        forward_fn=forward_fn,
+        reward_fns=reward_fns,
+    )
