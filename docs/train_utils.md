@@ -16,6 +16,14 @@
 - 输出：配置字典。
 - 说明：若路径与缓存命中，直接返回缓存对象。
 
+### `load_config(config_path, default_config_path) -> dict[str, Any]`
+
+- 作用：提供统一的“可选外部路径 + 模块默认路径”配置读取入口。
+- 规则：
+  - `config_path` 非空时读取该路径。
+  - `config_path` 为空时回退 `default_config_path`。
+- 输出：配置字典（内部复用 `load_config_cached`）。
+
 ### `resolve_config_path(input_payload, default_config_path) -> str | Path`
 
 - 作用：解析本次 step 使用的配置路径。

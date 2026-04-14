@@ -13,6 +13,8 @@
 1. `train/def_train.py`
 2. `train/config.yaml`
 
+快速测试提示：如果当前仓库里 `train/` 只有占位文件，请先把对应 `example/` 目录下的 `def_train.py` 和 `config.yaml` 复制到 `train/` 再启动训练。
+
 ## 2. 环境准备
 
 ```bash
