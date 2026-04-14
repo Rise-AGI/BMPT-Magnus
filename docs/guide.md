@@ -103,6 +103,11 @@ torchrun --nproc_per_node=8 main.py --entry train --backend pytorch --config tra
 - `util.components.default_components:load_model`
 - `util.components.default_components:build_dataloader`
 
+自定义训练定义入口（可选）：
+
+- `--def-train train.def_train`（默认）
+- 也可以指向示例：`--def-train example.Qwen35_sft_fullparam.def_train`
+
 示例：
 
 ```bash

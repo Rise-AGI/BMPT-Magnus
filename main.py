@@ -19,7 +19,6 @@ from src.core.distributed import (
 )
 from src.core.engine import TrainingEngine
 from src.core.optim import build_optimizer, build_scheduler
-from train.def_train import build_models_from_config, load_config, step
 
 
 def parse_args() -> argparse.Namespace:
@@ -46,6 +45,11 @@ def parse_args() -> argparse.Namespace:
         help="Dataloader builder symbol path module:function",
     )
     parser.add_argument(
+        "--def-train",
+        default="train.def_train",
+        help="Training definition module path, e.g. train.def_train",
+    )
+    parser.add_argument(
         "--max-steps",
         type=int,
         default=None,
@@ -69,6 +73,21 @@ def _load_symbol(path: str) -> Callable[..., Any]:
     module_name, symbol_name = path.split(":", maxsplit=1)
     module = import_module(module_name)
     return getattr(module, symbol_name)
+
+
+def _load_def_train_functions(def_train_module: str) -> tuple[Callable[..., Any], Callable[..., Any], Callable[..., Any]]:
+    module = import_module(def_train_module)
+    load_config_fn = getattr(module, "load_config", None)
+    build_models_from_config_fn = getattr(module, "build_models_from_config", None)
+    step_fn = getattr(module, "step", None)
+
+    if not callable(load_config_fn):
+        raise AttributeError(f"`{def_train_module}` must expose callable `load_config`")
+    if not callable(build_models_from_config_fn):
+        raise AttributeError(f"`{def_train_module}` must expose callable `build_models_from_config`")
+    if not callable(step_fn):
+        raise AttributeError(f"`{def_train_module}` must expose callable `step`")
+    return load_config_fn, build_models_from_config_fn, step_fn
 
 
 def _resolve_total_steps(config: dict[str, Any], max_steps_override: int | None) -> int:
@@ -125,7 +144,7 @@ def _iter_training_batches(
     global_step = 0
     for epoch_idx in range(epochs):
         sampler = getattr(data_iterable, "sampler", None)
-        if hasattr(sampler, "set_epoch"):
+        if sampler is not None and hasattr(sampler, "set_epoch"):
             sampler.set_epoch(epoch_idx)
         for batch in data_iterable:
             if global_step >= total_steps:
@@ -256,12 +275,13 @@ def _run_pytorch_backend(
     dist_ctx: Any,
     total_steps: int,
     save_final: bool,
+    step_fn: Callable[..., Any],
 ) -> None:
     train_cfg = config.get("train", {})
     optimizer = build_optimizer(models, config)
     scheduler = build_scheduler(optimizer, config, total_training_steps=total_steps)
     engine = TrainingEngine(
-        step_fn=step,
+        step_fn=step_fn,
         optimizer=optimizer,
         scheduler=scheduler,
         grad_accum_steps=int(train_cfg.get("gradient_accumulation_steps", 1)),
@@ -321,6 +341,7 @@ def _run_deepspeed_backend(
     dist_ctx: Any,
     total_steps: int,
     save_final: bool,
+    step_fn: Callable[..., Any],
 ) -> None:
     try:
         deepspeed = import_module("deepspeed")
@@ -358,7 +379,7 @@ def _run_deepspeed_backend(
         device_batch = move_to_device(batch, dist_ctx.device)
         payload = {"batch": device_batch, "global_step": idx}
         payload.update(static_step_input)
-        output = step(models, payload)
+        output = step_fn(models, payload)
         loss = output["loss"]
         ds_engine.backward(loss)
         ds_engine.step()
@@ -386,11 +407,13 @@ def run_train(
     config_path: str | Path,
     loader: str,
     dataloader: str,
+    def_train_module: str,
     max_steps_override: int | None = None,
     backend_override: str | None = None,
     save_final: bool = False,
 ) -> None:
-    config = load_config(config_path)
+    load_config_fn, build_models_from_config_fn, step_fn = _load_def_train_functions(def_train_module)
+    config = load_config_fn(config_path)
     backend = config.get("runtime", {}).get("distributed_backend", "nccl")
     dist_ctx = init_distributed(backend=backend)
 
@@ -398,7 +421,7 @@ def run_train(
         loader_fn = _load_symbol(loader)
         dataloader_fn = _load_symbol(dataloader)
 
-        models = build_models_from_config(config, loader_fn=loader_fn)
+        models = build_models_from_config_fn(config, loader_fn=loader_fn)
         training_backend = _resolve_training_backend(config, backend_override)
         if training_backend == "pytorch":
             models = wrap_models_for_ddp(models, dist_ctx)
@@ -415,6 +438,7 @@ def run_train(
                 dist_ctx=dist_ctx,
                 total_steps=total_steps,
                 save_final=save_final,
+                step_fn=step_fn,
             )
         else:
             _run_pytorch_backend(
@@ -425,6 +449,7 @@ def run_train(
                 dist_ctx=dist_ctx,
                 total_steps=total_steps,
                 save_final=save_final,
+                step_fn=step_fn,
             )
     finally:
         cleanup_distributed()
@@ -448,6 +473,7 @@ def main() -> None:
         config_path=args.config,
         loader=args.loader,
         dataloader=args.dataloader,
+        def_train_module=args.def_train,
         max_steps_override=args.max_steps,
         backend_override=args.backend,
         save_final=args.save_final,
