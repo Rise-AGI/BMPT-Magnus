@@ -1,5 +1,5 @@
 Bootstrap: docker
-From: pytorch/pytorch:2.3.1-cuda12.1-cudnn8-runtime
+From: pytorch/pytorch:2.5.1-cuda12.1-cudnn8-runtime
 
 %files
     requirements.common.txt /opt/brisk/requirements.common.txt
