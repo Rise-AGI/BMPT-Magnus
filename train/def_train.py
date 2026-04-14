@@ -31,6 +31,8 @@ def _as_long_tensor(value: Any, device: torch.device) -> torch.Tensor:
 
 
 def step(models, input):
+    print("DEBUG step: enter")
+    
     config_path = resolve_config_path(input, _DEFAULT_CONFIG_PATH)
     cached_config = input.get("_cached_config")
     if cached_config is None:
@@ -47,18 +49,27 @@ def step(models, input):
         cached_config=cached_config,
     )
     _ = ctx
+    print("DEBUG step: context built")
 
     model_dict = resolve_models(models, merged_config, input)
+    print(f"DEBUG step: models resolved, keys={list(model_dict.keys())}")
+    
     batch = input["batch"]
     policy_model = model_dict["policy"]
+    print("DEBUG step: policy_model obtained")
 
     model_device = next(policy_model.parameters()).device
+    print(f"DEBUG step: model_device={model_device}")
+    
     input_ids = _as_long_tensor(batch["input_ids"], model_device)
+    print(f"DEBUG step: input_ids shape={input_ids.shape}, dtype={input_ids.dtype}")
+    
     attention_mask_value = batch.get("attention_mask")
     if attention_mask_value is None:
         attention_mask = torch.ones_like(input_ids, dtype=torch.long)
     else:
         attention_mask = _as_long_tensor(attention_mask_value, model_device)
+    print(f"DEBUG step: attention_mask shape={attention_mask.shape}")
 
     labels_value = batch.get("labels")
     if labels_value is None:
@@ -66,14 +77,19 @@ def step(models, input):
     else:
         labels = _as_long_tensor(labels_value, model_device)
     labels = labels.masked_fill(attention_mask == 0, -100)
+    print(f"DEBUG step: labels shape={labels.shape}, num_valid={(labels != -100).sum()}")
 
+    print("DEBUG step: calling policy_model forward")
     outputs = policy_model(
         input_ids=input_ids,
         attention_mask=attention_mask,
         labels=labels,
     )
+    print(f"DEBUG step: forward done, loss={outputs.loss}")
 
     loss = outputs.loss.mean()
+    print(f"DEBUG step: final loss={loss.item()}")
+    
     return {
         "loss": loss,
         "metrics": {
