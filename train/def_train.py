@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import torch
+
 from util.train_utils import (
     build_models_from_config,
     build_step_context,
@@ -20,6 +22,12 @@ _DEFAULT_CONFIG_PATH = Path(__file__).with_name("config.yaml")
 
 def load_config(config_path: str | Path | None = None) -> dict[str, Any]:
     return _load_config(config_path, _DEFAULT_CONFIG_PATH)
+
+
+def _as_long_tensor(value: Any, device: torch.device) -> torch.Tensor:
+    if isinstance(value, torch.Tensor):
+        return value.to(device=device, dtype=torch.long)
+    return torch.tensor(value, device=device, dtype=torch.long)
 
 
 def step(models, input):
@@ -44,10 +52,25 @@ def step(models, input):
     batch = input["batch"]
     policy_model = model_dict["policy"]
 
+    model_device = next(policy_model.parameters()).device
+    input_ids = _as_long_tensor(batch["input_ids"], model_device)
+    attention_mask_value = batch.get("attention_mask")
+    if attention_mask_value is None:
+        attention_mask = torch.ones_like(input_ids, dtype=torch.long)
+    else:
+        attention_mask = _as_long_tensor(attention_mask_value, model_device)
+
+    labels_value = batch.get("labels")
+    if labels_value is None:
+        labels = input_ids.clone()
+    else:
+        labels = _as_long_tensor(labels_value, model_device)
+    labels = labels.masked_fill(attention_mask == 0, -100)
+
     outputs = policy_model(
-        input_ids=batch["input_ids"],
-        attention_mask=batch.get("attention_mask"),
-        labels=batch.get("labels"),
+        input_ids=input_ids,
+        attention_mask=attention_mask,
+        labels=labels,
     )
 
     loss = outputs.loss.mean()

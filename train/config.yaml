@@ -40,7 +40,7 @@ runtime:
   flash_attention: true
 
 data:
-  train_path: data/train.jsonl
+  train_path: data/processed/train.jsonl
   val_path: null
   prompt_key: prompt
   response_key: response
