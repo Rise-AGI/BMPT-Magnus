@@ -11,7 +11,6 @@ models: {...}
 optimizer: {...}
 scheduler: {...}
 train: {...}
-rlaif: {...}
 weighted: {...}   # 可选
 runtime: {...}
 data: {...}
@@ -84,7 +83,9 @@ train:
 - `max_steps <= 0` 时，训练入口会使用内部默认上限。
 - `checkpoint_every_steps <= 0` 表示不按间隔保存。
 
-## `rlaif`
+## `rlaif`（可选）
+
+默认 `train/config.yaml` 不包含该字段；仅在你在 `def_train.py` 中实现 RLAIF 逻辑时按需添加。
 
 ```yaml
 rlaif:
