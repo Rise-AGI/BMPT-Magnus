@@ -137,12 +137,16 @@ def _read_jsonl(path: str | Path) -> list[dict[str, Any]]:
     return rows
 
 
-def build_dataloader(config: dict[str, Any], dist_ctx: Any) -> DataLoader:
+def build_dataloader(config: dict[str, Any], dist_ctx: Any, path_key: str = "train_path", shuffle: bool = True) -> DataLoader:
     tokenizer = _load_tokenizer(config)
 
     data_cfg = config.get("data", {})
     train_cfg = config.get("train", {})
-    records = _read_jsonl(data_cfg["train_path"])
+    path = data_cfg.get(path_key)
+    if path is None:
+        return None
+
+    records = _read_jsonl(path)
 
     dataset = JsonlSFTDataset(
         records=records,
@@ -158,16 +162,16 @@ def build_dataloader(config: dict[str, Any], dist_ctx: Any) -> DataLoader:
             dataset,
             num_replicas=int(dist_ctx.world_size),
             rank=int(dist_ctx.rank),
-            shuffle=True,
-            drop_last=True,
+            shuffle=shuffle,
+            drop_last=False,
         )
 
     return DataLoader(
         dataset,
         batch_size=int(train_cfg.get("per_device_batch_size", 1)),
         sampler=sampler,
-        shuffle=sampler is None,
+        shuffle=sampler is None and shuffle,
         num_workers=2,
         pin_memory=True,
-        drop_last=True,
+        drop_last=False,
     )

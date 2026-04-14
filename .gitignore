@@ -23,7 +23,7 @@ outputs/
 logs/
 runs/
 wandb/
-train/*
+# train/*
 !train/.gitkeep
 
 # Data and local caches
