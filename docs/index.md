@@ -10,6 +10,7 @@
 2. `docs/config.md`：`train/config.yaml` 字段说明
 3. `docs/interface.md`：`step(models, input)` 返回协议
 4. `docs/apptainer.md`：Apptainer 构建与运行
+5. `docs/train_utils.md`：`util/train_utils.py` 函数说明
 
 ## 关键约定
 
