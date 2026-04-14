@@ -21,7 +21,7 @@ train:
   control_mode: epoch
   epochs: 4
   max_steps: -1
-  per_device_batch_size: 4
+  per_device_batch_size: 1
   gradient_accumulation_steps: 8
   max_seq_len: 2048
   mixed_precision: bf16
