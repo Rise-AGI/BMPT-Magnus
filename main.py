@@ -461,12 +461,16 @@ def run_train(
         dataloader_fn = _load_symbol(dataloader)
 
         models = build_models_from_config_fn(config, loader_fn=loader_fn)
+        print("DEBUG: models loaded")
         training_backend = _resolve_training_backend(config, backend_override)
         if training_backend == "pytorch":
             models = wrap_models_for_ddp(models, dist_ctx)
 
+        print("DEBUG: creating val dataloader")
         val_iterable = dataloader_fn(config, dist_ctx, path_key="val_path", shuffle=False)
+        print(f"DEBUG: val dataloader created, samples={len(val_iterable.dataset) if val_iterable and hasattr(val_iterable, 'dataset') else 'None'}")
         if val_iterable is not None:
+            print("DEBUG: starting before_train validation")
             _run_validation(
                 models=models,
                 val_iterable=val_iterable,
@@ -477,8 +481,10 @@ def run_train(
                 phase="before_train",
             )
 
+        print("DEBUG: creating train dataloader")
         data_iterable = dataloader_fn(config, dist_ctx)
         total_steps = _resolve_total_steps_by_mode(config, max_steps_override, data_iterable)
+        print(f"DEBUG: train dataloader created, total_steps={total_steps}")
 
         if training_backend == "deepspeed":
             _run_deepspeed_backend(
