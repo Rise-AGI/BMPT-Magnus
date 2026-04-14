@@ -21,20 +21,21 @@ train:
   control_mode: epoch
   epochs: 4
   max_steps: -1
-  per_device_batch_size: 1
+  per_device_batch_size: 2
   gradient_accumulation_steps: 8
   max_seq_len: 2048
   mixed_precision: bf16
   grad_clip_norm: 1.0
   checkpoint_every_steps: 200
-  checkpoint_dir: checkpoints/qwen25_sft_fullparam
+  checkpoint_dir: checkpoints/qwen25_sft_fullparam_torch
   log_every_steps: 10
 
 runtime:
   backend: accelerate
-  training_backend: deepspeed
+  training_backend: pytorch
   distributed_backend: nccl
   deepspeed_config_path: deepspeed_zero2.json
+  debug: false
   compile: false
   gradient_checkpointing: true
   flash_attention: true
