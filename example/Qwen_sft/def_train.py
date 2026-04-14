@@ -6,10 +6,10 @@ from typing import Any
 import torch
 
 from util.train_utils import (
-    build_models_from_config as _build_models_from_config,
+    build_models_from_config,
     build_step_context,
     get_cached_top_level,
-    load_config_cached,
+    load_config as _load_config,
     resolve_config_path,
     resolve_global_step,
     resolve_models,
@@ -21,12 +21,7 @@ _DEFAULT_CONFIG_PATH = Path(__file__).with_name("config.yaml")
 
 
 def load_config(config_path: str | Path | None = None) -> dict[str, Any]:
-    target = Path(config_path) if config_path is not None else _DEFAULT_CONFIG_PATH
-    return load_config_cached(target)
-
-
-def build_models_from_config(config: dict[str, Any], loader_fn):
-    return _build_models_from_config(config, loader_fn=loader_fn)
+    return _load_config(config_path, _DEFAULT_CONFIG_PATH)
 
 
 def step(models, input):

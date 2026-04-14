@@ -33,6 +33,11 @@ def load_config_cached(config_path: str | Path) -> dict[str, Any]:
     return loaded
 
 
+def load_config(config_path: str | Path | None, default_config_path: str | Path) -> dict[str, Any]:
+    target = Path(config_path) if config_path is not None else Path(default_config_path)
+    return load_config_cached(target)
+
+
 def resolve_config_path(input_payload: dict[str, Any], default_config_path: str | Path) -> str | Path:
     return input_payload.get("config_path", default_config_path)
 
