@@ -267,6 +267,65 @@ def _load_deepspeed_config(config: dict[str, Any], config_path: str | Path, tota
     return ds_config
 
 
+def _run_validation(
+    models: dict[str, torch.nn.Module],
+    val_iterable: Any,
+    config: dict[str, Any],
+    config_path: str | Path,
+    dist_ctx: Any,
+    step_fn: Callable[..., Any],
+    phase: str,
+) -> None:
+    print(f"DEBUG: _run_validation enter, phase={phase}")
+    
+    static_step_input = {
+        "config_path": str(config_path),
+        "_cached_config": config,
+        "_merged_config": config,
+    }
+
+    if hasattr(val_iterable, "__len__"):
+        print(f"DEBUG: val total batches={len(val_iterable)}")
+    else:
+        print(f"DEBUG: val iterable has no __len__")
+
+    total_loss = 0.0
+    total_samples = 0
+    metrics_sum: dict[str, float] = {}
+    batch_count = 0
+
+    print("DEBUG: entering validation loop")
+
+    with torch.no_grad():
+        for batch in val_iterable:
+            batch_count += 1
+            print(f"DEBUG: val batch {batch_count} start")
+
+            device_batch = move_to_device(batch, dist_ctx.device)
+            print(f"DEBUG: val batch {batch_count} moved to device")
+
+            payload = {"batch": device_batch, "global_step": 0}
+            payload.update(static_step_input)
+            print(f"DEBUG: val batch {batch_count} payload ready")
+
+            output = step_fn(models, payload)
+            print(f"DEBUG: val batch {batch_count} step done, loss={output.get('loss')}")
+
+            loss = float(output.get("loss", 0.0))
+            total_loss += loss
+            total_samples += 1
+
+            for key, value in output.get("metrics", {}).items():
+                metrics_sum[key] = metrics_sum.get(key, 0.0) + float(value)
+
+    print(f"DEBUG: validation loop done, total_batches={batch_count}")
+
+    if is_main_process(dist_ctx):
+        avg_loss = total_loss / max(total_samples, 1)
+        avg_metrics = {k: v / total_samples for k, v in metrics_sum.items()}
+        print(f"[{phase}] val_loss={avg_loss:.4f} val_metrics={avg_metrics}")
+
+
 def _run_pytorch_backend(
     models: dict[str, torch.nn.Module],
     data_iterable: Any,
@@ -336,6 +395,7 @@ def _run_pytorch_backend(
 def _run_deepspeed_backend(
     models: dict[str, torch.nn.Module],
     data_iterable: Any,
+    before_train_val_iterable: Any | None,
     config: dict[str, Any],
     config_path: str | Path,
     dist_ctx: Any,
@@ -373,6 +433,19 @@ def _run_deepspeed_backend(
         "_cached_config": config,
         "_merged_config": config,
     }
+
+    if before_train_val_iterable is not None:
+        print("DEBUG: starting before_train validation (deepspeed initialized)")
+        _run_validation(
+            models=models,
+            val_iterable=before_train_val_iterable,
+            config=config,
+            config_path=config_path,
+            dist_ctx=dist_ctx,
+            step_fn=step_fn,
+            phase="before_train",
+        )
+
     for idx, batch in _iter_training_batches(data_iterable, config, total_steps):
         last_step = idx + 1
 
@@ -422,17 +495,36 @@ def run_train(
         dataloader_fn = _load_symbol(dataloader)
 
         models = build_models_from_config_fn(config, loader_fn=loader_fn)
+        print("DEBUG: models loaded")
         training_backend = _resolve_training_backend(config, backend_override)
         if training_backend == "pytorch":
             models = wrap_models_for_ddp(models, dist_ctx)
 
+        print("DEBUG: creating val dataloader")
+        val_iterable = dataloader_fn(config, dist_ctx, path_key="val_path", shuffle=False)
+        print(f"DEBUG: val dataloader created, samples={len(val_iterable.dataset) if val_iterable and hasattr(val_iterable, 'dataset') else 'None'}")
+        if val_iterable is not None and training_backend != "deepspeed":
+            print("DEBUG: starting before_train validation")
+            _run_validation(
+                models=models,
+                val_iterable=val_iterable,
+                config=config,
+                config_path=config_path,
+                dist_ctx=dist_ctx,
+                step_fn=step_fn,
+                phase="before_train",
+            )
+
+        print("DEBUG: creating train dataloader")
         data_iterable = dataloader_fn(config, dist_ctx)
         total_steps = _resolve_total_steps_by_mode(config, max_steps_override, data_iterable)
+        print(f"DEBUG: train dataloader created, total_steps={total_steps}")
 
         if training_backend == "deepspeed":
             _run_deepspeed_backend(
                 models=models,
                 data_iterable=data_iterable,
+                before_train_val_iterable=val_iterable,
                 config=config,
                 config_path=config_path,
                 dist_ctx=dist_ctx,
@@ -450,6 +542,18 @@ def run_train(
                 total_steps=total_steps,
                 save_final=save_final,
                 step_fn=step_fn,
+            )
+
+        if val_iterable is not None:
+            val_iterable = dataloader_fn(config, dist_ctx, path_key="val_path", shuffle=False)
+            _run_validation(
+                models=models,
+                val_iterable=val_iterable,
+                config=config,
+                config_path=config_path,
+                dist_ctx=dist_ctx,
+                step_fn=step_fn,
+                phase="after_train",
             )
     finally:
         cleanup_distributed()
