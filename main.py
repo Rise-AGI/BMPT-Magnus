@@ -267,6 +267,45 @@ def _load_deepspeed_config(config: dict[str, Any], config_path: str | Path, tota
     return ds_config
 
 
+def _run_validation(
+    models: dict[str, torch.nn.Module],
+    val_iterable: Any,
+    config: dict[str, Any],
+    config_path: str | Path,
+    dist_ctx: Any,
+    step_fn: Callable[..., Any],
+    phase: str,
+) -> None:
+    static_step_input = {
+        "config_path": str(config_path),
+        "_cached_config": config,
+        "_merged_config": config,
+    }
+
+    total_loss = 0.0
+    total_samples = 0
+    metrics_sum: dict[str, float] = {}
+
+    with torch.no_grad():
+        for batch in val_iterable:
+            device_batch = move_to_device(batch, dist_ctx.device)
+            payload = {"batch": device_batch, "global_step": 0}
+            payload.update(static_step_input)
+            output = step_fn(models, payload)
+
+            loss = float(output.get("loss", 0.0))
+            total_loss += loss
+            total_samples += 1
+
+            for key, value in output.get("metrics", {}).items():
+                metrics_sum[key] = metrics_sum.get(key, 0.0) + float(value)
+
+    if is_main_process(dist_ctx):
+        avg_loss = total_loss / max(total_samples, 1)
+        avg_metrics = {k: v / total_samples for k, v in metrics_sum.items()}
+        print(f"[{phase}] val_loss={avg_loss:.4f} val_metrics={avg_metrics}")
+
+
 def _run_pytorch_backend(
     models: dict[str, torch.nn.Module],
     data_iterable: Any,
@@ -426,6 +465,18 @@ def run_train(
         if training_backend == "pytorch":
             models = wrap_models_for_ddp(models, dist_ctx)
 
+        val_iterable = dataloader_fn(config, dist_ctx, path_key="val_path", shuffle=False)
+        if val_iterable is not None:
+            _run_validation(
+                models=models,
+                val_iterable=val_iterable,
+                config=config,
+                config_path=config_path,
+                dist_ctx=dist_ctx,
+                step_fn=step_fn,
+                phase="before_train",
+            )
+
         data_iterable = dataloader_fn(config, dist_ctx)
         total_steps = _resolve_total_steps_by_mode(config, max_steps_override, data_iterable)
 
@@ -450,6 +501,18 @@ def run_train(
                 total_steps=total_steps,
                 save_final=save_final,
                 step_fn=step_fn,
+            )
+
+        if val_iterable is not None:
+            val_iterable = dataloader_fn(config, dist_ctx, path_key="val_path", shuffle=False)
+            _run_validation(
+                models=models,
+                val_iterable=val_iterable,
+                config=config,
+                config_path=config_path,
+                dist_ctx=dist_ctx,
+                step_fn=step_fn,
+                phase="after_train",
             )
     finally:
         cleanup_distributed()
