@@ -395,6 +395,7 @@ def _run_pytorch_backend(
 def _run_deepspeed_backend(
     models: dict[str, torch.nn.Module],
     data_iterable: Any,
+    before_train_val_iterable: Any | None,
     config: dict[str, Any],
     config_path: str | Path,
     dist_ctx: Any,
@@ -432,6 +433,19 @@ def _run_deepspeed_backend(
         "_cached_config": config,
         "_merged_config": config,
     }
+
+    if before_train_val_iterable is not None:
+        print("DEBUG: starting before_train validation (deepspeed initialized)")
+        _run_validation(
+            models=models,
+            val_iterable=before_train_val_iterable,
+            config=config,
+            config_path=config_path,
+            dist_ctx=dist_ctx,
+            step_fn=step_fn,
+            phase="before_train",
+        )
+
     for idx, batch in _iter_training_batches(data_iterable, config, total_steps):
         last_step = idx + 1
 
@@ -489,7 +503,7 @@ def run_train(
         print("DEBUG: creating val dataloader")
         val_iterable = dataloader_fn(config, dist_ctx, path_key="val_path", shuffle=False)
         print(f"DEBUG: val dataloader created, samples={len(val_iterable.dataset) if val_iterable and hasattr(val_iterable, 'dataset') else 'None'}")
-        if val_iterable is not None:
+        if val_iterable is not None and training_backend != "deepspeed":
             print("DEBUG: starting before_train validation")
             _run_validation(
                 models=models,
@@ -510,6 +524,7 @@ def run_train(
             _run_deepspeed_backend(
                 models=models,
                 data_iterable=data_iterable,
+                before_train_val_iterable=val_iterable,
                 config=config,
                 config_path=config_path,
                 dist_ctx=dist_ctx,
