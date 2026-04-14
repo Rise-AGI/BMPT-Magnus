@@ -41,6 +41,6 @@ runtime:
 
 data:
   train_path: data/processed/train.jsonl
-  val_path: null
+  val_path: data/processed/val.jsonl
   prompt_key: prompt
   response_key: response
