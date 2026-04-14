@@ -47,10 +47,6 @@ train:
   checkpoint_dir: checkpoints
   log_every_steps: 10
 
-rlaif:
-  reward_scale: 1.0
-  normalize_reward: true
-
 runtime:
   backend: accelerate
   training_backend: pytorch
