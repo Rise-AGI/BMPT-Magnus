@@ -68,6 +68,7 @@ scheduler:
 
 ```yaml
 train:
+  control_mode: step  # step | epoch
   epochs: 1
   max_steps: -1
   per_device_batch_size: 2
@@ -80,7 +81,10 @@ train:
   log_every_steps: 10
 ```
 
-- `max_steps <= 0` 时，训练入口会使用内部默认上限。
+- `control_mode` 控制训练截断方式：
+  - `step`：按 `max_steps` 截断（或 CLI `--max-steps` 覆盖）。
+  - `epoch`：按 `epochs * len(dataloader)` 计算总步数，忽略 `max_steps`。
+- `max_steps <= 0` 且 `control_mode=step` 时，训练入口会使用内部默认上限。
 - `checkpoint_every_steps <= 0` 表示不按间隔保存。
 
 ## `rlaif`（可选）

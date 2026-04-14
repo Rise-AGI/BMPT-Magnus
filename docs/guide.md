@@ -30,6 +30,7 @@ uv pip install torch transformers peft deepspeed pyyaml
 - `optimizer.lr`
 - `train.per_device_batch_size`
 - `train.gradient_accumulation_steps`
+- `train.control_mode`: `step` 或 `epoch`
 - `runtime.training_backend`: `pytorch` 或 `deepspeed`
 - `runtime.deepspeed_config_path`
 - `weighted.weights`（多目标权重，包含 `kl`）
