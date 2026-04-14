@@ -276,22 +276,40 @@ def _run_validation(
     step_fn: Callable[..., Any],
     phase: str,
 ) -> None:
+    print(f"DEBUG: _run_validation enter, phase={phase}")
+    
     static_step_input = {
         "config_path": str(config_path),
         "_cached_config": config,
         "_merged_config": config,
     }
 
+    if hasattr(val_iterable, "__len__"):
+        print(f"DEBUG: val total batches={len(val_iterable)}")
+    else:
+        print(f"DEBUG: val iterable has no __len__")
+
     total_loss = 0.0
     total_samples = 0
     metrics_sum: dict[str, float] = {}
+    batch_count = 0
+
+    print("DEBUG: entering validation loop")
 
     with torch.no_grad():
         for batch in val_iterable:
+            batch_count += 1
+            print(f"DEBUG: val batch {batch_count} start")
+
             device_batch = move_to_device(batch, dist_ctx.device)
+            print(f"DEBUG: val batch {batch_count} moved to device")
+
             payload = {"batch": device_batch, "global_step": 0}
             payload.update(static_step_input)
+            print(f"DEBUG: val batch {batch_count} payload ready")
+
             output = step_fn(models, payload)
+            print(f"DEBUG: val batch {batch_count} step done, loss={output.get('loss')}")
 
             loss = float(output.get("loss", 0.0))
             total_loss += loss
@@ -299,6 +317,8 @@ def _run_validation(
 
             for key, value in output.get("metrics", {}).items():
                 metrics_sum[key] = metrics_sum.get(key, 0.0) + float(value)
+
+    print(f"DEBUG: validation loop done, total_batches={batch_count}")
 
     if is_main_process(dist_ctx):
         avg_loss = total_loss / max(total_samples, 1)
