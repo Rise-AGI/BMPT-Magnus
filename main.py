@@ -81,6 +81,59 @@ def _resolve_total_steps(config: dict[str, Any], max_steps_override: int | None)
     return 1000
 
 
+def _resolve_train_control_mode(config: dict[str, Any]) -> str:
+    train_cfg = config.get("train", {})
+    mode = str(train_cfg.get("control_mode", "step")).lower()
+    if mode not in {"step", "epoch"}:
+        raise ValueError(f"Unsupported train.control_mode: {mode}")
+    return mode
+
+
+def _resolve_total_steps_by_mode(
+    config: dict[str, Any],
+    max_steps_override: int | None,
+    data_iterable: Any,
+) -> int:
+    mode = _resolve_train_control_mode(config)
+    if mode == "step":
+        return _resolve_total_steps(config, max_steps_override)
+
+    train_cfg = config.get("train", {})
+    epochs = int(train_cfg.get("epochs", 1))
+    if epochs <= 0:
+        raise ValueError("`train.epochs` must be > 0 when train.control_mode is `epoch`")
+    if not hasattr(data_iterable, "__len__"):
+        raise ValueError("`train.control_mode=epoch` requires dataloader with __len__")
+    return int(len(data_iterable)) * epochs
+
+
+def _iter_training_batches(
+    data_iterable: Any,
+    config: dict[str, Any],
+    total_steps: int,
+):
+    mode = _resolve_train_control_mode(config)
+    if mode == "step":
+        for step_idx, batch in enumerate(data_iterable):
+            if step_idx >= total_steps:
+                break
+            yield step_idx, batch
+        return
+
+    train_cfg = config.get("train", {})
+    epochs = int(train_cfg.get("epochs", 1))
+    global_step = 0
+    for epoch_idx in range(epochs):
+        sampler = getattr(data_iterable, "sampler", None)
+        if hasattr(sampler, "set_epoch"):
+            sampler.set_epoch(epoch_idx)
+        for batch in data_iterable:
+            if global_step >= total_steps:
+                return
+            yield global_step, batch
+            global_step += 1
+
+
 def _resolve_training_backend(config: dict[str, Any], backend_override: str | None) -> str:
     if backend_override is not None:
         return backend_override
@@ -223,9 +276,7 @@ def _run_pytorch_backend(
         "_cached_config": config,
         "_merged_config": config,
     }
-    for idx, batch in enumerate(data_iterable):
-        if idx >= total_steps:
-            break
+    for idx, batch in _iter_training_batches(data_iterable, config, total_steps):
         last_step = idx + 1
 
         device_batch = move_to_device(batch, dist_ctx.device)
@@ -301,9 +352,7 @@ def _run_deepspeed_backend(
         "_cached_config": config,
         "_merged_config": config,
     }
-    for idx, batch in enumerate(data_iterable):
-        if idx >= total_steps:
-            break
+    for idx, batch in _iter_training_batches(data_iterable, config, total_steps):
         last_step = idx + 1
 
         device_batch = move_to_device(batch, dist_ctx.device)
@@ -355,7 +404,7 @@ def run_train(
             models = wrap_models_for_ddp(models, dist_ctx)
 
         data_iterable = dataloader_fn(config, dist_ctx)
-        total_steps = _resolve_total_steps(config, max_steps_override)
+        total_steps = _resolve_total_steps_by_mode(config, max_steps_override, data_iterable)
 
         if training_backend == "deepspeed":
             _run_deepspeed_backend(

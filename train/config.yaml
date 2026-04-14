@@ -36,6 +36,7 @@ scheduler:
   min_lr_ratio: 0.1
 
 train:
+  control_mode: step
   epochs: 1
   max_steps: -1
   per_device_batch_size: 2
