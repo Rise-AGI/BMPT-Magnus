@@ -35,6 +35,7 @@ runtime:
   training_backend: deepspeed
   distributed_backend: nccl
   deepspeed_config_path: deepspeed_zero2.json
+  debug: false
   compile: false
   gradient_checkpointing: true
   flash_attention: true

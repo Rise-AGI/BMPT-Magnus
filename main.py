@@ -66,7 +66,21 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Save final checkpoint with tag `latest`",
     )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Enable verbose debug logs",
+    )
     return parser.parse_args()
+
+
+def _is_debug_enabled(config: dict[str, Any]) -> bool:
+    return bool(config.get("runtime", {}).get("debug", False))
+
+
+def _debug_print(config: dict[str, Any], message: str) -> None:
+    if _is_debug_enabled(config):
+        print(message)
 
 
 def _load_symbol(path: str) -> Callable[..., Any]:
@@ -276,7 +290,7 @@ def _run_validation(
     step_fn: Callable[..., Any],
     phase: str,
 ) -> None:
-    print(f"DEBUG: _run_validation enter, phase={phase}")
+    _debug_print(config, f"DEBUG: _run_validation enter, phase={phase}")
     
     static_step_input = {
         "config_path": str(config_path),
@@ -285,31 +299,31 @@ def _run_validation(
     }
 
     if hasattr(val_iterable, "__len__"):
-        print(f"DEBUG: val total batches={len(val_iterable)}")
+        _debug_print(config, f"DEBUG: val total batches={len(val_iterable)}")
     else:
-        print(f"DEBUG: val iterable has no __len__")
+        _debug_print(config, "DEBUG: val iterable has no __len__")
 
     total_loss = 0.0
     total_samples = 0
     metrics_sum: dict[str, float] = {}
     batch_count = 0
 
-    print("DEBUG: entering validation loop")
+    _debug_print(config, "DEBUG: entering validation loop")
 
     with torch.no_grad():
         for batch in val_iterable:
             batch_count += 1
-            print(f"DEBUG: val batch {batch_count} start")
+            _debug_print(config, f"DEBUG: val batch {batch_count} start")
 
             device_batch = move_to_device(batch, dist_ctx.device)
-            print(f"DEBUG: val batch {batch_count} moved to device")
+            _debug_print(config, f"DEBUG: val batch {batch_count} moved to device")
 
             payload = {"batch": device_batch, "global_step": 0}
             payload.update(static_step_input)
-            print(f"DEBUG: val batch {batch_count} payload ready")
+            _debug_print(config, f"DEBUG: val batch {batch_count} payload ready")
 
             output = step_fn(models, payload)
-            print(f"DEBUG: val batch {batch_count} step done, loss={output.get('loss')}")
+            _debug_print(config, f"DEBUG: val batch {batch_count} step done, loss={output.get('loss')}")
 
             loss = float(output.get("loss", 0.0))
             total_loss += loss
@@ -318,7 +332,7 @@ def _run_validation(
             for key, value in output.get("metrics", {}).items():
                 metrics_sum[key] = metrics_sum.get(key, 0.0) + float(value)
 
-    print(f"DEBUG: validation loop done, total_batches={batch_count}")
+    _debug_print(config, f"DEBUG: validation loop done, total_batches={batch_count}")
 
     if is_main_process(dist_ctx):
         avg_loss = total_loss / max(total_samples, 1)
@@ -354,6 +368,7 @@ def _run_pytorch_backend(
         "config_path": str(config_path),
         "_cached_config": config,
         "_merged_config": config,
+        "_debug": _is_debug_enabled(config),
     }
     for idx, batch in _iter_training_batches(data_iterable, config, total_steps):
         last_step = idx + 1
@@ -432,10 +447,11 @@ def _run_deepspeed_backend(
         "config_path": str(config_path),
         "_cached_config": config,
         "_merged_config": config,
+        "_debug": _is_debug_enabled(config),
     }
 
     if before_train_val_iterable is not None:
-        print("DEBUG: starting before_train validation (deepspeed initialized)")
+        _debug_print(config, "DEBUG: starting before_train validation (deepspeed initialized)")
         _run_validation(
             models=models,
             val_iterable=before_train_val_iterable,
@@ -484,9 +500,12 @@ def run_train(
     max_steps_override: int | None = None,
     backend_override: str | None = None,
     save_final: bool = False,
+    debug_override: bool = False,
 ) -> None:
     load_config_fn, build_models_from_config_fn, step_fn = _load_def_train_functions(def_train_module)
     config = load_config_fn(config_path)
+    if debug_override:
+        config.setdefault("runtime", {})["debug"] = True
     backend = config.get("runtime", {}).get("distributed_backend", "nccl")
     dist_ctx = init_distributed(backend=backend)
 
@@ -495,16 +514,19 @@ def run_train(
         dataloader_fn = _load_symbol(dataloader)
 
         models = build_models_from_config_fn(config, loader_fn=loader_fn)
-        print("DEBUG: models loaded")
+        _debug_print(config, "DEBUG: models loaded")
         training_backend = _resolve_training_backend(config, backend_override)
         if training_backend == "pytorch":
             models = wrap_models_for_ddp(models, dist_ctx)
 
-        print("DEBUG: creating val dataloader")
+        _debug_print(config, "DEBUG: creating val dataloader")
         val_iterable = dataloader_fn(config, dist_ctx, path_key="val_path", shuffle=False)
-        print(f"DEBUG: val dataloader created, samples={len(val_iterable.dataset) if val_iterable and hasattr(val_iterable, 'dataset') else 'None'}")
+        _debug_print(
+            config,
+            f"DEBUG: val dataloader created, samples={len(val_iterable.dataset) if val_iterable and hasattr(val_iterable, 'dataset') else 'None'}",
+        )
         if val_iterable is not None and training_backend != "deepspeed":
-            print("DEBUG: starting before_train validation")
+            _debug_print(config, "DEBUG: starting before_train validation")
             _run_validation(
                 models=models,
                 val_iterable=val_iterable,
@@ -515,10 +537,10 @@ def run_train(
                 phase="before_train",
             )
 
-        print("DEBUG: creating train dataloader")
+        _debug_print(config, "DEBUG: creating train dataloader")
         data_iterable = dataloader_fn(config, dist_ctx)
         total_steps = _resolve_total_steps_by_mode(config, max_steps_override, data_iterable)
-        print(f"DEBUG: train dataloader created, total_steps={total_steps}")
+        _debug_print(config, f"DEBUG: train dataloader created, total_steps={total_steps}")
 
         if training_backend == "deepspeed":
             _run_deepspeed_backend(
@@ -581,6 +603,7 @@ def main() -> None:
         max_steps_override=args.max_steps,
         backend_override=args.backend,
         save_final=args.save_final,
+        debug_override=args.debug,
     )
 
 

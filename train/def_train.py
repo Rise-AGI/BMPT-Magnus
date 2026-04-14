@@ -30,8 +30,20 @@ def _as_long_tensor(value: Any, device: torch.device) -> torch.Tensor:
     return torch.tensor(value, device=device, dtype=torch.long)
 
 
+def _is_debug_enabled(input_payload: dict[str, Any], merged_config: dict[str, Any] | None = None) -> bool:
+    if merged_config is not None:
+        return bool(merged_config.get("runtime", {}).get("debug", False))
+    return bool(input_payload.get("_debug", False))
+
+
+def _debug_print(enabled: bool, message: str) -> None:
+    if enabled:
+        print(message)
+
+
 def step(models, input):
-    print("DEBUG step: enter")
+    debug = _is_debug_enabled(input)
+    _debug_print(debug, "DEBUG step: enter")
     
     config_path = resolve_config_path(input, _DEFAULT_CONFIG_PATH)
     cached_config = input.get("_cached_config")
@@ -41,6 +53,7 @@ def step(models, input):
     merged_config = input.get("_merged_config")
     if merged_config is None:
         merged_config = resolve_step_config(input, _DEFAULT_CONFIG_PATH)
+    debug = _is_debug_enabled(input, merged_config)
 
     global_step = resolve_global_step(input)
     ctx = build_step_context(
@@ -49,27 +62,27 @@ def step(models, input):
         cached_config=cached_config,
     )
     _ = ctx
-    print("DEBUG step: context built")
+    _debug_print(debug, "DEBUG step: context built")
 
     model_dict = resolve_models(models, merged_config, input)
-    print(f"DEBUG step: models resolved, keys={list(model_dict.keys())}")
+    _debug_print(debug, f"DEBUG step: models resolved, keys={list(model_dict.keys())}")
     
     batch = input["batch"]
     policy_model = model_dict["policy"]
-    print("DEBUG step: policy_model obtained")
+    _debug_print(debug, "DEBUG step: policy_model obtained")
 
     model_device = next(policy_model.parameters()).device
-    print(f"DEBUG step: model_device={model_device}")
+    _debug_print(debug, f"DEBUG step: model_device={model_device}")
     
     input_ids = _as_long_tensor(batch["input_ids"], model_device)
-    print(f"DEBUG step: input_ids shape={input_ids.shape}, dtype={input_ids.dtype}")
+    _debug_print(debug, f"DEBUG step: input_ids shape={input_ids.shape}, dtype={input_ids.dtype}")
     
     attention_mask_value = batch.get("attention_mask")
     if attention_mask_value is None:
         attention_mask = torch.ones_like(input_ids, dtype=torch.long)
     else:
         attention_mask = _as_long_tensor(attention_mask_value, model_device)
-    print(f"DEBUG step: attention_mask shape={attention_mask.shape}")
+    _debug_print(debug, f"DEBUG step: attention_mask shape={attention_mask.shape}")
 
     labels_value = batch.get("labels")
     if labels_value is None:
@@ -77,18 +90,18 @@ def step(models, input):
     else:
         labels = _as_long_tensor(labels_value, model_device)
     labels = labels.masked_fill(attention_mask == 0, -100)
-    print(f"DEBUG step: labels shape={labels.shape}, num_valid={(labels != -100).sum()}")
+    _debug_print(debug, f"DEBUG step: labels shape={labels.shape}, num_valid={(labels != -100).sum()}")
 
-    print("DEBUG step: calling policy_model forward")
+    _debug_print(debug, "DEBUG step: calling policy_model forward")
     outputs = policy_model(
         input_ids=input_ids,
         attention_mask=attention_mask,
         labels=labels,
     )
-    print(f"DEBUG step: forward done, loss={outputs.loss}")
+    _debug_print(debug, f"DEBUG step: forward done, loss={outputs.loss}")
 
     loss = outputs.loss.mean()
-    print(f"DEBUG step: final loss={loss.item()}")
+    _debug_print(debug, f"DEBUG step: final loss={loss.item()}")
     
     return {
         "loss": loss,
