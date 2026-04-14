@@ -134,15 +134,64 @@ def _resolve_deepspeed_config_path(config: dict[str, Any], config_path: str | Pa
     return str(resolved)
 
 
-def _load_deepspeed_config(config: dict[str, Any], config_path: str | Path) -> dict[str, Any]:
+def _load_deepspeed_config(config: dict[str, Any], config_path: str | Path, total_steps: int) -> dict[str, Any]:
     ds_path = _resolve_deepspeed_config_path(config, config_path)
     with Path(ds_path).open("r", encoding="utf-8") as handle:
         ds_config = json.load(handle)
 
     train_cfg = config.get("train", {})
+    optimizer_cfg = config.get("optimizer", {})
+    scheduler_cfg = config.get("scheduler", {})
+
     ds_config["train_micro_batch_size_per_gpu"] = int(train_cfg.get("per_device_batch_size", 1))
     ds_config["gradient_accumulation_steps"] = int(train_cfg.get("gradient_accumulation_steps", 1))
     ds_config["gradient_clipping"] = float(train_cfg.get("grad_clip_norm", 1.0))
+
+    optimizer_type = str(optimizer_cfg.get("type", "adamw")).lower()
+    if optimizer_type != "adamw":
+        raise ValueError(f"Unsupported optimizer.type for deepspeed backend: {optimizer_type}")
+    ds_config["optimizer"] = {
+        "type": "AdamW",
+        "params": {
+            "lr": float(optimizer_cfg.get("lr", 2.0e-5)),
+            "weight_decay": float(optimizer_cfg.get("weight_decay", 0.0)),
+            "betas": list(optimizer_cfg.get("betas", [0.9, 0.999])),
+            "eps": float(optimizer_cfg.get("eps", 1.0e-8)),
+        },
+    }
+
+    mixed_precision = str(train_cfg.get("mixed_precision", "bf16")).lower()
+    if mixed_precision == "bf16":
+        ds_config["bf16"] = {"enabled": True}
+        ds_config["fp16"] = {"enabled": False}
+    elif mixed_precision == "fp16":
+        ds_config["bf16"] = {"enabled": False}
+        ds_config["fp16"] = {"enabled": True}
+    elif mixed_precision == "no":
+        ds_config["bf16"] = {"enabled": False}
+        ds_config["fp16"] = {"enabled": False}
+    else:
+        raise ValueError(f"Unsupported train.mixed_precision for deepspeed backend: {mixed_precision}")
+
+    scheduler_type = str(scheduler_cfg.get("type", "none")).lower()
+    if scheduler_type == "cosine":
+        warmup_steps = int(scheduler_cfg.get("warmup_steps", 0))
+        min_lr_ratio = float(scheduler_cfg.get("min_lr_ratio", 0.0))
+        max_lr = float(optimizer_cfg.get("lr", 2.0e-5))
+        ds_config["scheduler"] = {
+            "type": "WarmupCosineLR",
+            "params": {
+                "warmup_min_lr": max_lr * min_lr_ratio,
+                "warmup_max_lr": max_lr,
+                "warmup_num_steps": warmup_steps,
+                "total_num_steps": int(total_steps),
+            },
+        }
+    elif scheduler_type == "none":
+        ds_config.pop("scheduler", None)
+    else:
+        raise ValueError(f"Unsupported scheduler.type for deepspeed backend: {scheduler_type}")
+
     return ds_config
 
 
@@ -228,7 +277,7 @@ def _run_deepspeed_backend(
         raise ImportError("deepspeed backend requires `deepspeed` package") from exc
 
     train_cfg = config.get("train", {})
-    ds_config = _load_deepspeed_config(config, config_path)
+    ds_config = _load_deepspeed_config(config, config_path, total_steps=total_steps)
 
     policy_model = models["policy"].to(dist_ctx.device)
     trainable_parameters = [param for param in policy_model.parameters() if param.requires_grad]

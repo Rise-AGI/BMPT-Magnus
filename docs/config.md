@@ -123,6 +123,13 @@ runtime:
 
 - `training_backend` 控制正式训练入口走 PyTorch 或 DeepSpeed。
 - 使用 DeepSpeed 时会读取 `deepspeed_config_path` 指向的外部 JSON。
+- 训练入口会用 `train/config.yaml` 覆盖 DeepSpeed JSON 的关键训练参数：
+  - `train.per_device_batch_size` -> `train_micro_batch_size_per_gpu`
+  - `train.gradient_accumulation_steps` -> `gradient_accumulation_steps`
+  - `train.grad_clip_norm` -> `gradient_clipping`
+  - `optimizer` -> `optimizer`（当前支持 `adamw`）
+  - `train.mixed_precision` -> `bf16/fp16`
+  - `scheduler` -> `scheduler`（当前支持 `cosine`、`none`）
 
 ## `data`
 
