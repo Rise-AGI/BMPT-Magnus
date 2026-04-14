@@ -38,15 +38,12 @@ uv pip install torch transformers peft deepspeed pyyaml
 
 ## 4. 实现你的算法
 
-在 `train/def_train.py` 里实现你的 `step_impl(...)`（可复用 `sft_step/rlaif_lora_step` 作为模板）。
+在 `train/def_train.py` 里直接实现你的 `step(models, input)`。
 
 接口约定：
 
-- `forward_fn(models, batch, ctx)`
-  - SFT 返回 `{"loss": tensor}`
-  - RLAIF 返回 `{"policy_logits": ..., "labels": ..., "reference_logits": ...}`
-- `reward_fns` 是字典，key 必须与 `weighted.weights`（除 `kl`）一致。
-- 训练入口会把 `models` 按 `{key: model}` 传给 `step_impl`，不再通过顶层 `mode` 做路由。
+- `step` 函数内部自行完成 forward、reward、loss 计算。
+- 训练入口会把 `models` 按 `{key: model}` 传给 `def_train.py`。
 
 ## 5. 启动训练
 

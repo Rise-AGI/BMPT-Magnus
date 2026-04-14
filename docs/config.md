@@ -12,7 +12,7 @@ optimizer: {...}
 scheduler: {...}
 train: {...}
 rlaif: {...}
-weighted: {...}
+weighted: {...}   # 可选
 runtime: {...}
 data: {...}
 ```
@@ -103,9 +103,9 @@ weighted:
     kl: 0.02
 ```
 
-- 当前实现固定使用加权聚合。
+- 该字段为可选，仅在你在 `def_train.py` 中实现 weighted 多奖励策略时需要。
 - `weights` 为绝对系数，不做归一化。
-- `weights` 中除 `kl` 外的键，应与 `reward_fns` 键一致。
+- `weights` 中除 `kl` 外的键，应与你在 `def_train.py` 中实现的奖励项名称一致。
 
 ## `runtime`
 

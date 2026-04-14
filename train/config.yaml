@@ -51,13 +51,6 @@ rlaif:
   reward_scale: 1.0
   normalize_reward: true
 
-weighted:
-  enabled: true
-  normalize_weights: false
-  weights:
-    reward: 1.0
-    kl: 0.02
-
 runtime:
   backend: accelerate
   training_backend: pytorch

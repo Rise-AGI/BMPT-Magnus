@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 import torch
 
-from util.templates import default_forward
 from util.train_utils import (
     build_models_from_config as _build_models_from_config,
     build_step_context,
@@ -30,21 +29,6 @@ def build_models_from_config(config: dict[str, Any], loader_fn):
     return _build_models_from_config(config, loader_fn=loader_fn)
 
 
-def sft_step(
-    models: dict[str, torch.nn.Module],
-    batch: dict[str, Any],
-    ctx: Any,
-    forward_fn: Callable[..., Any],
-) -> dict[str, Any]:
-    outputs = forward_fn(models, batch, ctx)
-    loss = outputs["loss"].mean()
-    return {
-        "loss": loss,
-        "metrics": {"loss/sft": float(loss.detach().item())},
-        "aux": {},
-    }
-
-
 def step(models, input):
     config_path = resolve_config_path(input, _DEFAULT_CONFIG_PATH)
     cached_config = input.get("_cached_config")
@@ -64,5 +48,21 @@ def step(models, input):
 
     model_dict = resolve_models(models, merged_config, input)
     batch = input["batch"]
-    forward_fn = input.get("forward_fn", default_forward)
-    return sft_step(model_dict, batch, ctx, forward_fn=forward_fn)
+    policy_model = model_dict["policy"]
+    outputs = policy_model(
+        input_ids=batch["input_ids"],
+        attention_mask=batch.get("attention_mask"),
+        labels=batch.get("labels"),
+    )
+
+    loss = outputs.loss.mean()
+    reward = -loss.detach()
+    return {
+        "loss": loss,
+        "reward": reward,
+        "metrics": {
+            "loss/sft": float(loss.detach().item()),
+            "reward/sft": float(reward.item()),
+        },
+        "aux": {},
+    }

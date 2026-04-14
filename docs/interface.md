@@ -25,79 +25,45 @@ step(models, input) -> dict[str, Any]
 - `input["batch"]`: `dict[str, torch.Tensor]`
 - `input["config_path"]`: 配置路径（可选）
 - `input["config"]`: step 级配置覆盖（可选）
-- `input["forward_fn"]`: 前向函数（可选）
-- `input["reward_fns"]`: 多奖励函数字典（`rlaif_lora` 推荐）
-- `input["reward_fn"]`: 单奖励函数（兼容字段）
 - `input["loader_fn"]`: 构建模型函数（当 `models is None` 时可选）
-- `input["step_impl"]`: 训练步骤实现函数（可选，默认使用 SFT 模板）
 
-## 4. forward_fn 协议
+说明：forward/reward/loss 都在 `train/def_train.py` 的 `step` 中实现。
 
-签名：
-
-```python
-forward_fn(models, batch, ctx) -> dict[str, torch.Tensor]
-```
-
-### 4.1 SFT 模式
-
-必须返回：
-
-- `loss`: `torch.Tensor`
-  - 形状：`() | (B,) | (B, T)`
-  - `def_train.py` 中统一执行 `loss.mean()`
-
-### 4.2 RLAIF-LoRA 模式
-
-必须返回：
-
-- `policy_logits`: `torch.Tensor`，形状 `(B, T, V)`
-- `labels`: `torch.LongTensor`，形状 `(B, T)`
-
-可选返回：
-
-- `reference_logits`: `torch.Tensor | None`，形状 `(B, T, V)`
-
-## 5. reward_fn / reward_fns 协议
+## 4. step 行为约定
 
 签名：
 
-```python
-reward_fn(outputs, batch, ctx) -> torch.Tensor
-```
+`step` 在 `def_train.py` 中应自行完成：
+
+- forward
+- reward 计算
+- loss 计算（含 KL 或其他项）
 
 返回约束：
 
-- `torch.Tensor`，形状 `(B,)`
-- dtype 建议 `float32` 或 `bfloat16`（最终会对齐到 `policy_logits.dtype`）
-- 与 batch 一一对应：第 `i` 个 reward 对应第 `i` 个样本
+- `loss`: 必填，`torch.Tensor` 标量
+- `reward`: 可选，`torch.Tensor` 或可转标量
+- `metrics`: 可选，日志化标量字典
 
-`reward_fns` 协议：
-
-- 类型：`dict[str, Callable]`
-- key 必须与 `weighted.weights` 除 `kl` 外的 key 严格一致
-- 聚合公式：`loss_total = Σ(weight_i * loss_i) + weight_kl * loss_kl`
-- `weighted.normalize_weights` 必须为 `false`（当前实现不做权重归一化）
-
-## 6. 维度约束
+## 5. 维度约束
 
 - `B`: batch size
 - `T`: 序列长度
 - `V`: 词表大小
-- 在 `rlaif_lora` 中：
+- 在包含 KL/策略对比的算法中：
   - `labels.shape == policy_logits.shape[:-1]`
   - 若存在 `reference_logits`，需与 `policy_logits.shape` 完全一致
 
-## 7. 运行时行为
+## 6. 运行时行为
 
 - 配置按路径全局缓存；同一路径不会重复读取磁盘。
 - `StepContext.cached_config` 暴露缓存中的原始配置（未叠加 step override）。
 - `StepContext.full_config` 暴露当前 step 生效配置（已叠加 `input["config"]`）。
-- 训练流程不再使用顶层 `mode` 开关；算法路由由 `step_impl` 决定。
+- 训练流程不使用顶层 `mode` 或 `algorithm` 开关；算法由 `def_train.py` 决定。
 - 不做输入结构兜底判断，调用方必须严格遵守本协议。
 - 协议变更时必须先更新本文件，再更新实现。
 
-## 8. 顶层 weighted 配置
+## 7. 顶层 weighted 配置
 
 ```yaml
 weighted:
@@ -110,9 +76,9 @@ weighted:
 
 - `weights` 是绝对系数，不做自动归一化。
 - `weights.kl` 作用于 KL loss。
-- 当前联合目标策略仅支持 `weighted`。
+- 如使用 weighted 多奖励策略，权重由该配置提供。
 
-## 9. 最小运行示例
+## 8. 最小运行示例
 
 - 示例脚本：`examples/example_weighted_step.py`
 - 运行方式：`uv run python examples/example_weighted_step.py`
