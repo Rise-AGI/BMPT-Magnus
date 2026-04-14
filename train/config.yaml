@@ -2,7 +2,7 @@ seed: 42
 
 models:
   policy:
-    path: Qwen/Qwen2.5-7B-Instruct
+    path: /data/zhaoweiran/models/Qwen/Qwen2.5-7B 
     trainable: true
 
 optimizer:
@@ -19,11 +19,11 @@ scheduler:
 
 train:
   control_mode: epoch
-  epochs: 3
+  epochs: 4
   max_steps: -1
-  per_device_batch_size: 1
-  gradient_accumulation_steps: 16
-  max_seq_len: 4096
+  per_device_batch_size: 4
+  gradient_accumulation_steps: 8
+  max_seq_len: 2048
   mixed_precision: bf16
   grad_clip_norm: 1.0
   checkpoint_every_steps: 200
