@@ -29,6 +29,18 @@ class JsonlSFTDataset(Dataset):
 
     def __getitem__(self, idx: int) -> dict[str, torch.Tensor]:
         row = self.records[idx]
+
+        if "input_ids" in row and "attention_mask" in row:
+            input_ids = torch.tensor(row["input_ids"], dtype=torch.long)
+            attention_mask = torch.tensor(row["attention_mask"], dtype=torch.long)
+            labels = torch.tensor(row.get("labels", row["input_ids"]), dtype=torch.long)
+            labels = labels.masked_fill(attention_mask == 0, -100)
+            return {
+                "input_ids": input_ids,
+                "attention_mask": attention_mask,
+                "labels": labels,
+            }
+
         prompt = str(row[self.prompt_key])
         response = str(row[self.response_key])
         text = f"{prompt}\n{response}"
