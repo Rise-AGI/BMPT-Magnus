@@ -114,7 +114,7 @@ runtime:
   backend: accelerate
   training_backend: pytorch   # pytorch | deepspeed
   distributed_backend: nccl
-  deepspeed_config_path: ../configs/deepspeed_zero2.json
+  deepspeed_config_path: deepspeed_zero2.json
   compile: false
   gradient_checkpointing: true
   flash_attention: true

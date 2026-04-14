@@ -312,7 +312,7 @@ torchrun --nnodes=2 --node_rank=1 --nproc_per_node=8 --master_addr=<master_ip> -
 ```yaml
 runtime:
   training_backend: pytorch
-  deepspeed_config_path: ../configs/deepspeed_zero2.json
+  deepspeed_config_path: deepspeed_zero2.json
 ```
 
 DeepSpeed 路线（读取外部 JSON）示例：

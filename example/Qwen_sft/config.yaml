@@ -2,7 +2,7 @@ seed: 42
 
 models:
   policy:
-    path: Qwen/Qwen2.5-7B-Instruct
+    path: Qwen/Qwen3.5-7B-Instruct
     trainable: true
     lora:
       enabled: true
@@ -14,14 +14,6 @@ models:
         - k_proj
         - v_proj
         - o_proj
-
-  reference:
-    path: Qwen/Qwen2.5-7B-Instruct
-    trainable: false
-
-  reward:
-    path: null
-    trainable: false
 
 optimizer:
   type: adamw
@@ -47,22 +39,11 @@ train:
   checkpoint_dir: checkpoints
   log_every_steps: 10
 
-rlaif:
-  reward_scale: 1.0
-  normalize_reward: true
-
-weighted:
-  enabled: true
-  normalize_weights: false
-  weights:
-    reward: 1.0
-    kl: 0.02
-
 runtime:
   backend: accelerate
   training_backend: pytorch
   distributed_backend: nccl
-  deepspeed_config_path: deepspeed_zero2.json
+  deepspeed_config_path: ../../train/deepspeed_zero2.json
   compile: false
   gradient_checkpointing: true
   flash_attention: true
