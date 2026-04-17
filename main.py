@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Callable, cast
 
 import torch
+import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel
 
 from src.core.distributed import (
@@ -78,9 +79,15 @@ def _is_debug_enabled(config: dict[str, Any]) -> bool:
     return bool(config.get("runtime", {}).get("debug", False))
 
 
+def _is_rank0() -> bool:
+    if dist.is_available() and dist.is_initialized():
+        return dist.get_rank() == 0
+    return True
+
+
 def _debug_print(config: dict[str, Any], message: str) -> None:
-    if _is_debug_enabled(config):
-        print(message)
+    if _is_debug_enabled(config) and _is_rank0():
+        print(message, flush=True)
 
 
 def _load_symbol(path: str) -> Callable[..., Any]:
@@ -382,9 +389,10 @@ def _run_pytorch_backend(
             extra_input=static_step_input,
         )
 
-        if (idx + 1) % log_every == 0 and is_main_process(dist_ctx):
+        if (idx + 1) % log_every == 0:
             reduced = reduce_metrics(output["metrics"], dist_ctx)
-            print(f"step={idx + 1} metrics={reduced}")
+            if is_main_process(dist_ctx):
+                print(f"step={idx + 1} metrics={reduced}")
 
         if checkpoint_every > 0 and (idx + 1) % checkpoint_every == 0 and is_main_process(dist_ctx):
             save_path = _save_pytorch_checkpoint(
@@ -477,9 +485,10 @@ def _run_deepspeed_backend(
 
         metrics = dict(output.get("metrics", {}))
         metrics["engine/global_step"] = idx + 1
-        if (idx + 1) % log_every == 0 and is_main_process(dist_ctx):
+        if (idx + 1) % log_every == 0:
             reduced = reduce_metrics(metrics, dist_ctx)
-            print(f"step={idx + 1} metrics={reduced}")
+            if is_main_process(dist_ctx):
+                print(f"step={idx + 1} metrics={reduced}")
 
         if checkpoint_every > 0 and (idx + 1) % checkpoint_every == 0:
             tag = f"step_{idx + 1}"

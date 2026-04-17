@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 import torch
+import torch.distributed as dist
 
 from util.train_utils import (
     build_models_from_config,
@@ -37,8 +38,11 @@ def _is_debug_enabled(input_payload: dict[str, Any], merged_config: dict[str, An
 
 
 def _debug_print(enabled: bool, message: str) -> None:
-    if enabled:
-        print(message)
+    if not enabled:
+        return
+    if dist.is_available() and dist.is_initialized() and dist.get_rank() != 0:
+        return
+    print(message, flush=True)
 
 
 def step(models, input):
