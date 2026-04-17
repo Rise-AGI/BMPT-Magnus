@@ -263,14 +263,16 @@ def _load_deepspeed_config(config: dict[str, Any], config_path: str | Path, tota
     if scheduler_type == "cosine":
         warmup_steps = int(scheduler_cfg.get("warmup_steps", 0))
         min_lr_ratio = float(scheduler_cfg.get("min_lr_ratio", 0.0))
-        max_lr = float(optimizer_cfg.get("lr", 2.0e-5))
+        total_num_steps = int(total_steps)
+        if total_num_steps <= warmup_steps:
+            total_num_steps = warmup_steps + 1
         ds_config["scheduler"] = {
             "type": "WarmupCosineLR",
             "params": {
-                "warmup_min_lr": max_lr * min_lr_ratio,
-                "warmup_max_lr": max_lr,
                 "warmup_num_steps": warmup_steps,
-                "total_num_steps": int(total_steps),
+                "total_num_steps": total_num_steps,
+                "warmup_min_ratio": 0.0,
+                "cos_min_ratio": min_lr_ratio,
             },
         }
     elif scheduler_type == "none":
