@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -52,12 +52,15 @@ class StepMetricsLogger:
     enabled: bool
     global_throughput: bool
     window_size: int
+    step_time_ms_window: deque[float] = field(init=False, repr=False)
+    tokens_per_sec_window: deque[float] = field(init=False, repr=False)
+    samples_per_sec_window: deque[float] = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         maxlen = max(int(self.window_size), 1)
-        self.step_time_ms_window: deque[float] = deque(maxlen=maxlen)
-        self.tokens_per_sec_window: deque[float] = deque(maxlen=maxlen)
-        self.samples_per_sec_window: deque[float] = deque(maxlen=maxlen)
+        self.step_time_ms_window = deque(maxlen=maxlen)
+        self.tokens_per_sec_window = deque(maxlen=maxlen)
+        self.samples_per_sec_window = deque(maxlen=maxlen)
 
     @classmethod
     def from_config(cls, metrics_cfg: dict[str, Any]) -> "StepMetricsLogger":
