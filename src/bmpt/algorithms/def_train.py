@@ -6,7 +6,7 @@ from typing import Any
 import torch
 import torch.distributed as dist
 
-from util.train_utils import (
+from bmpt.train_utils import (
     build_models_from_config,
     build_step_context,
     get_cached_top_level,
@@ -48,7 +48,7 @@ def _debug_print(enabled: bool, message: str) -> None:
 def step(models, input):
     debug = _is_debug_enabled(input)
     _debug_print(debug, "DEBUG step: enter")
-    
+
     config_path = resolve_config_path(input, _DEFAULT_CONFIG_PATH)
     cached_config = input.get("_cached_config")
     if cached_config is None:
@@ -70,17 +70,17 @@ def step(models, input):
 
     model_dict = resolve_models(models, merged_config, input)
     _debug_print(debug, f"DEBUG step: models resolved, keys={list(model_dict.keys())}")
-    
+
     batch = input["batch"]
     policy_model = model_dict["policy"]
     _debug_print(debug, "DEBUG step: policy_model obtained")
 
     model_device = next(policy_model.parameters()).device
     _debug_print(debug, f"DEBUG step: model_device={model_device}")
-    
+
     input_ids = _as_long_tensor(batch["input_ids"], model_device)
     _debug_print(debug, f"DEBUG step: input_ids shape={input_ids.shape}, dtype={input_ids.dtype}")
-    
+
     attention_mask_value = batch.get("attention_mask")
     if attention_mask_value is None:
         attention_mask = torch.ones_like(input_ids, dtype=torch.long)
@@ -106,7 +106,7 @@ def step(models, input):
 
     loss = outputs.loss.mean()
     _debug_print(debug, f"DEBUG step: final loss={loss.item()}")
-    
+
     return {
         "loss": loss,
         "metrics": {

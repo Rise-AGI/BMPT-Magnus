@@ -5,8 +5,8 @@ from typing import Any, Callable
 
 import torch
 
-from src.core.config import deep_merge_dict, load_yaml_config
-from src.core.types import StepContext
+from bmpt.core.config import deep_merge_dict, load_yaml_config
+from bmpt.core.types import StepContext
 
 
 _CONFIG_CACHE: dict[str, Any] = {

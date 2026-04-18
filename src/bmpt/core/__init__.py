@@ -1,4 +1,4 @@
-from src.core.distributed import (
+from bmpt.core.distributed import (
     DistributedContext,
     cleanup_distributed,
     init_distributed,
@@ -7,9 +7,9 @@ from src.core.distributed import (
     reduce_metrics,
     wrap_models_for_ddp,
 )
-from src.core.engine import EngineState, TrainingEngine
-from src.core.optim import build_optimizer, build_scheduler
-from src.core.types import StepContext
+from bmpt.core.engine import EngineState, TrainingEngine
+from bmpt.core.optim import build_optimizer, build_scheduler
+from bmpt.core.types import StepContext
 
 __all__ = [
     "DistributedContext",

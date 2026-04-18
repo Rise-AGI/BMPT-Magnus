@@ -2,116 +2,74 @@
 
 这份文档面向“有算法想法，但不想深挖 Torch/DeepSpeed 细节”的使用者。
 
-## 1. 三层结构（先记住这个）
+## 1. 三层结构
 
-- 算法层：`train/def_train.py`（你写训练目标和 loss）。
-- 执行层：`main.py` + `src/core/`（框架负责分布式、反传、优化器、checkpoint）。
-- 配置层：`train/config.yaml`（你调学习率、后端和路径）。
+- 算法层：`src/bmpt/algorithms/def_train.py`（训练目标与 loss）。
+- 执行层：`bmpt-train` + `src/bmpt/core/`（分布式、优化器、checkpoint）。
+- 配置层：`src/bmpt/algorithms/config.yaml`（学习率、后端、路径）。
 
-你通常只需要改两处：
-
-1. `train/def_train.py`
-2. `train/config.yaml`
-
-快速测试提示：如果当前仓库里 `train/` 只有占位文件，请先把对应 `example/` 目录下的 `def_train.py` 和 `config.yaml` 复制到 `train/` 再启动训练。
-
-## 2. 环境准备
+## 2. 安装
 
 ```bash
-uv venv --python 3.10
-source .venv/bin/activate
-uv pip install torch transformers peft deepspeed pyyaml
+pip install -e .
 ```
 
-如果你先跑 PyTorch 路线，可先不装 `deepspeed`。
-
-## 3. 配置核心项
-
-在 `train/config.yaml` 中重点看这些字段：
-
-- `optimizer.lr`
-- `train.per_device_batch_size`
-- `train.gradient_accumulation_steps`
-- `train.control_mode`: `step` 或 `epoch`
-- `runtime.training_backend`: `pytorch` 或 `deepspeed`
-- `runtime.deepspeed_config_path`
-- `weighted.weights`（多目标权重，包含 `kl`）
-
-完整字段说明见：`docs/config.md`
-
-## 4. 实现你的算法
-
-在 `train/def_train.py` 里直接实现你的 `step(models, input)`。
-
-接口约定：
-
-- `step` 函数内部自行完成 forward、reward、loss 计算。
-- 训练入口会把 `models` 按 `{key: model}` 传给 `def_train.py`。
-
-## 5. 启动训练
-
-单卡快速验证：
+可选依赖：
 
 ```bash
-torchrun --nproc_per_node=1 main.py --entry train --backend pytorch --config train/config.yaml --max-steps 20
+pip install -e .[torch]
+pip install -e .[deepspeed]
 ```
 
-DeepSpeed 路线：
+## 3. 单机训练
 
 ```bash
-torchrun --nproc_per_node=1 main.py --entry train --backend deepspeed --config train/config.yaml --max-steps 20
+bmpt-train --backend pytorch --config src/bmpt/algorithms/config.yaml --max-steps 20
 ```
 
-## 6. 多 GPU / 集群
+## 4. DeepSpeed 路线
+
+```bash
+bmpt-train --backend deepspeed --config src/bmpt/algorithms/config.yaml --max-steps 20
+```
+
+## 5. 分布式启动（torchrun 风格）
 
 单机 8 卡：
 
 ```bash
-torchrun --nproc_per_node=8 main.py --entry train --backend pytorch --config train/config.yaml
+bmpt-train --nproc-per-node 8 --backend pytorch --config src/bmpt/algorithms/config.yaml
 ```
 
 双机示例（每机 8 卡）：
 
 ```bash
-torchrun --nnodes=2 --node_rank=0 --nproc_per_node=8 --master_addr=<master_ip> --master_port=29500 main.py --entry train --backend deepspeed --config train/config.yaml
+bmpt-train --nnodes 2 --node-rank 0 --nproc-per-node 8 --master-addr <master_ip> --master-port 29500 --backend deepspeed --config src/bmpt/algorithms/config.yaml
 ```
 
 ```bash
-torchrun --nnodes=2 --node_rank=1 --nproc_per_node=8 --master_addr=<master_ip> --master_port=29500 main.py --entry train --backend deepspeed --config train/config.yaml
+bmpt-train --nnodes 2 --node-rank 1 --nproc-per-node 8 --master-addr <master_ip> --master-port 29500 --backend deepspeed --config src/bmpt/algorithms/config.yaml
 ```
 
-## 7. 保存与恢复
-
-配置项：
-
-- `train.checkpoint_every_steps`
-- `train.checkpoint_dir`
-
-训练结束额外保存 `latest`：
-
-```bash
-torchrun --nproc_per_node=8 main.py --entry train --backend pytorch --config train/config.yaml --save-final
-```
-
-## 8. 组件选择
+## 6. 组件选择
 
 默认组件（生产训练）：
 
-- `util.components.qwen_components:load_model`
-- `util.components.qwen_components:build_dataloader`
+- `bmpt.components.qwen_components:load_model`
+- `bmpt.components.qwen_components:build_dataloader`
 
-备用组件（快速 smoke test）：
+快速 smoke 组件：
 
-- `util.components.default_components:load_model`
-- `util.components.default_components:build_dataloader`
-
-自定义训练定义入口（可选）：
-
-- `--def-train train.def_train`（默认）
-- 也可以指向示例：`--def-train example.Qwen35_sft_fullparam.def_train`
+- `bmpt.components.default_components:load_model`
+- `bmpt.components.default_components:build_dataloader`
 
 示例：
 
 ```bash
-torchrun --nproc_per_node=8 main.py --entry train --config train/config.yaml --loader util.components.qwen_components:load_model --dataloader util.components.qwen_components:build_dataloader
+bmpt-train --config src/bmpt/algorithms/config.yaml --loader bmpt.components.qwen_components:load_model --dataloader bmpt.components.qwen_components:build_dataloader
 ```
+
+## 7. 示例脚本
+
+- 引擎示例：`python example/example_engine_loop.py`
+- 算法 step 示例：`python example/example_weighted_step.py`

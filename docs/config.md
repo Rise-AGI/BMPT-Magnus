@@ -145,7 +145,7 @@ data:
   response_key: response
 ```
 
-- `util.components.qwen_components` 默认按 JSONL 读取该结构。
+- `bmpt.components.qwen_components` 默认按 JSONL 读取该结构。
 
 ## CLI 覆盖关系
 

@@ -71,8 +71,8 @@ def _require_hf() -> tuple[Any, Any, Any, Any, Any]:
         from transformers import AutoModelForCausalLM, AutoTokenizer
     except Exception as exc:
         raise ImportError(
-            "`util.components.qwen_components` requires `transformers` and `peft`. "
-            "Please install them in your uv environment."
+            "`bmpt.components.qwen_components` requires `transformers` and `peft`. "
+            "Please install them in your environment."
         ) from exc
 
     return AutoModelForCausalLM, AutoTokenizer, LoraConfig, TaskType, get_peft_model
@@ -137,7 +137,7 @@ def _read_jsonl(path: str | Path) -> list[dict[str, Any]]:
     return rows
 
 
-def build_dataloader(config: dict[str, Any], dist_ctx: Any, path_key: str = "train_path", shuffle: bool = True) -> DataLoader:
+def build_dataloader(config: dict[str, Any], dist_ctx: Any, path_key: str = "train_path", shuffle: bool = True) -> DataLoader | None:
     tokenizer = _load_tokenizer(config)
 
     data_cfg = config.get("data", {})

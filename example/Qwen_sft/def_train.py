@@ -5,7 +5,7 @@ from typing import Any
 
 import torch
 
-from util.train_utils import (
+from bmpt.train_utils import (
     build_models_from_config,
     build_step_context,
     get_cached_top_level,

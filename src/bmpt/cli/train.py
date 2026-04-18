@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import subprocess
+import sys
 from importlib import import_module
 from pathlib import Path
 from typing import Any, Callable, cast
@@ -10,7 +13,7 @@ import torch
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel
 
-from src.core.distributed import (
+from bmpt.core.distributed import (
     cleanup_distributed,
     init_distributed,
     is_main_process,
@@ -18,37 +21,35 @@ from src.core.distributed import (
     reduce_metrics,
     wrap_models_for_ddp,
 )
-from src.core.engine import TrainingEngine
-from src.core.optim import build_optimizer, build_scheduler
+from bmpt.core.engine import TrainingEngine
+from bmpt.core.optim import build_optimizer, build_scheduler
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Brisk training entrypoint")
-    parser.add_argument(
-        "--entry",
-        choices=["weighted", "engine", "train"],
-        default="train",
-        help="Which executable flow to run",
-    )
+def _default_config_path() -> str:
+    return str(Path(__file__).resolve().parent.parent / "algorithms" / "config.yaml")
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="BMPT training entrypoint")
     parser.add_argument(
         "--config",
-        default="train/config.yaml",
+        default=_default_config_path(),
         help="Path to training config file",
     )
     parser.add_argument(
         "--loader",
-        default="util.components.qwen_components:load_model",
+        default="bmpt.components.qwen_components:load_model",
         help="Model loader symbol path module:function",
     )
     parser.add_argument(
         "--dataloader",
-        default="util.components.qwen_components:build_dataloader",
+        default="bmpt.components.qwen_components:build_dataloader",
         help="Dataloader builder symbol path module:function",
     )
     parser.add_argument(
         "--def-train",
-        default="train.def_train",
-        help="Training definition module path, e.g. train.def_train",
+        default="bmpt.algorithms.def_train",
+        help="Training definition module path, e.g. bmpt.algorithms.def_train",
     )
     parser.add_argument(
         "--max-steps",
@@ -72,7 +73,40 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Enable verbose debug logs",
     )
-    return parser.parse_args()
+    parser.add_argument(
+        "--nproc-per-node",
+        type=int,
+        default=None,
+        help="Launch distributed workers per node (torchrun style)",
+    )
+    parser.add_argument(
+        "--nnodes",
+        default=None,
+        help="Number of nodes (supports torchrun syntax, e.g. 2 or 1:4)",
+    )
+    parser.add_argument(
+        "--node-rank",
+        type=int,
+        default=None,
+        help="Rank of current node in multi-node setup",
+    )
+    parser.add_argument(
+        "--master-addr",
+        default=None,
+        help="Master node address for rendezvous",
+    )
+    parser.add_argument(
+        "--master-port",
+        type=int,
+        default=None,
+        help="Master node port for rendezvous",
+    )
+    parser.add_argument(
+        "--worker",
+        action="store_true",
+        help=argparse.SUPPRESS,
+    )
+    return parser.parse_args(argv)
 
 
 def _is_debug_enabled(config: dict[str, Any]) -> bool:
@@ -300,39 +334,23 @@ def _run_validation(
     phase: str,
 ) -> None:
     _debug_print(config, f"DEBUG: _run_validation enter, phase={phase}")
-    
+
     static_step_input = {
         "config_path": str(config_path),
         "_cached_config": config,
         "_merged_config": config,
     }
 
-    if hasattr(val_iterable, "__len__"):
-        _debug_print(config, f"DEBUG: val total batches={len(val_iterable)}")
-    else:
-        _debug_print(config, "DEBUG: val iterable has no __len__")
-
     total_loss = 0.0
     total_samples = 0
     metrics_sum: dict[str, float] = {}
-    batch_count = 0
-
-    _debug_print(config, "DEBUG: entering validation loop")
 
     with torch.no_grad():
         for batch in val_iterable:
-            batch_count += 1
-            _debug_print(config, f"DEBUG: val batch {batch_count} start")
-
             device_batch = move_to_device(batch, dist_ctx.device)
-            _debug_print(config, f"DEBUG: val batch {batch_count} moved to device")
-
             payload = {"batch": device_batch, "global_step": 0}
             payload.update(static_step_input)
-            _debug_print(config, f"DEBUG: val batch {batch_count} payload ready")
-
             output = step_fn(models, payload)
-            _debug_print(config, f"DEBUG: val batch {batch_count} step done, loss={output.get('loss')}")
 
             loss = float(output.get("loss", 0.0))
             total_loss += loss
@@ -340,8 +358,6 @@ def _run_validation(
 
             for key, value in output.get("metrics", {}).items():
                 metrics_sum[key] = metrics_sum.get(key, 0.0) + float(value)
-
-    _debug_print(config, f"DEBUG: validation loop done, total_batches={batch_count}")
 
     if is_main_process(dist_ctx):
         avg_loss = total_loss / max(total_samples, 1)
@@ -461,7 +477,6 @@ def _run_deepspeed_backend(
     }
 
     if before_train_val_iterable is not None:
-        _debug_print(config, "DEBUG: starting before_train validation (deepspeed initialized)")
         _run_validation(
             models=models,
             val_iterable=before_train_val_iterable,
@@ -525,19 +540,12 @@ def run_train(
         dataloader_fn = _load_symbol(dataloader)
 
         models = build_models_from_config_fn(config, loader_fn=loader_fn)
-        _debug_print(config, "DEBUG: models loaded")
         training_backend = _resolve_training_backend(config, backend_override)
         if training_backend == "pytorch":
             models = wrap_models_for_ddp(models, dist_ctx)
 
-        _debug_print(config, "DEBUG: creating val dataloader")
         val_iterable = dataloader_fn(config, dist_ctx, path_key="val_path", shuffle=False)
-        _debug_print(
-            config,
-            f"DEBUG: val dataloader created, samples={len(val_iterable.dataset) if val_iterable and hasattr(val_iterable, 'dataset') else 'None'}",
-        )
         if val_iterable is not None and training_backend != "deepspeed":
-            _debug_print(config, "DEBUG: starting before_train validation")
             _run_validation(
                 models=models,
                 val_iterable=val_iterable,
@@ -548,10 +556,8 @@ def run_train(
                 phase="before_train",
             )
 
-        _debug_print(config, "DEBUG: creating train dataloader")
         data_iterable = dataloader_fn(config, dist_ctx)
         total_steps = _resolve_total_steps_by_mode(config, max_steps_override, data_iterable)
-        _debug_print(config, f"DEBUG: train dataloader created, total_steps={total_steps}")
 
         if training_backend == "deepspeed":
             _run_deepspeed_backend(
@@ -592,20 +598,90 @@ def run_train(
         cleanup_distributed()
 
 
-def main() -> None:
-    args = parse_args()
-    if args.entry == "weighted":
-        from examples.example_weighted_step import main as run_weighted_example
+def _is_worker_env() -> bool:
+    world_size = int(os.getenv("WORLD_SIZE", "1"))
+    return world_size > 1 and "RANK" in os.environ and "LOCAL_RANK" in os.environ
 
-        run_weighted_example()
-        return
 
-    if args.entry == "engine":
-        from examples.example_engine_loop import main as run_engine_example
+def _build_worker_args(args: argparse.Namespace) -> list[str]:
+    worker_args = [
+        "--worker",
+        "--config",
+        str(args.config),
+        "--loader",
+        args.loader,
+        "--dataloader",
+        args.dataloader,
+        "--def-train",
+        args.def_train,
+    ]
+    if args.max_steps is not None:
+        worker_args.extend(["--max-steps", str(args.max_steps)])
+    if args.backend is not None:
+        worker_args.extend(["--backend", args.backend])
+    if args.save_final:
+        worker_args.append("--save-final")
+    if args.debug:
+        worker_args.append("--debug")
+    return worker_args
 
-        run_engine_example()
-        return
 
+def _should_launch(args: argparse.Namespace) -> bool:
+    return args.nproc_per_node is not None
+
+
+def _validate_launch_args(args: argparse.Namespace) -> None:
+    has_aux_dist_arg = any(
+        value is not None
+        for value in [args.nnodes, args.node_rank, args.master_addr, args.master_port]
+    )
+    if args.nproc_per_node is None and has_aux_dist_arg:
+        raise ValueError("Distributed launch args require --nproc-per-node")
+
+    if args.nproc_per_node is not None and args.nproc_per_node < 1:
+        raise ValueError("--nproc-per-node must be >= 1")
+
+    nnodes = str(args.nnodes) if args.nnodes is not None else "1"
+    is_multi_node = nnodes != "1"
+    if is_multi_node:
+        if args.node_rank is None:
+            raise ValueError("Multi-node launch requires --node-rank")
+        if args.master_addr is None:
+            raise ValueError("Multi-node launch requires --master-addr")
+        if args.master_port is None:
+            raise ValueError("Multi-node launch requires --master-port")
+
+
+def _launch_distributed(args: argparse.Namespace) -> None:
+    _validate_launch_args(args)
+
+    nnodes = str(args.nnodes) if args.nnodes is not None else "1"
+    node_rank = str(args.node_rank) if args.node_rank is not None else "0"
+    master_addr = args.master_addr if args.master_addr is not None else "127.0.0.1"
+    master_port = str(args.master_port) if args.master_port is not None else "29500"
+
+    command = [
+        sys.executable,
+        "-m",
+        "torch.distributed.run",
+        "--nproc-per-node",
+        str(args.nproc_per_node),
+        "--nnodes",
+        nnodes,
+        "--node-rank",
+        node_rank,
+        "--master-addr",
+        master_addr,
+        "--master-port",
+        master_port,
+        "-m",
+        "bmpt.cli.train",
+    ]
+    command.extend(_build_worker_args(args))
+    subprocess.run(command, check=True)
+
+
+def _run_train_entry(args: argparse.Namespace) -> None:
     run_train(
         config_path=args.config,
         loader=args.loader,
@@ -616,6 +692,20 @@ def main() -> None:
         save_final=args.save_final,
         debug_override=args.debug,
     )
+
+
+def main(argv: list[str] | None = None) -> None:
+    args = parse_args(argv)
+    if args.worker or _is_worker_env():
+        _run_train_entry(args)
+        return
+
+    if _should_launch(args):
+        _launch_distributed(args)
+        return
+
+    _validate_launch_args(args)
+    _run_train_entry(args)
 
 
 if __name__ == "__main__":

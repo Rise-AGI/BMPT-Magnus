@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import torch
 
-from src.core.engine import TrainingEngine
-from src.core.optim import build_optimizer, build_scheduler
-from train.def_train import step
+from bmpt.algorithms.def_train import step
+from bmpt.core.engine import TrainingEngine
+from bmpt.core.optim import build_optimizer, build_scheduler
 
 
 class TinyPolicy(torch.nn.Module):

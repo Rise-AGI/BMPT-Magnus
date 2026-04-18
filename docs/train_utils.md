@@ -1,6 +1,6 @@
-# `util/train_utils.py` 函数说明
+# `bmpt.train_utils` 函数说明
 
-本文档解释 `train/def_train.py` 常用辅助函数的职责、输入输出和典型用法。
+本文档解释 `bmpt.algorithms.def_train` 常用辅助函数的职责、输入输出和典型用法。
 
 ## 配置缓存相关
 
@@ -101,7 +101,7 @@
   - `full_config`（当前 step 生效配置）
   - `cached_config`（缓存中的原始配置）
 
-## 推荐调用顺序（`def_train.py`）
+## 推荐调用顺序（`bmpt.algorithms.def_train`）
 
 典型流程：
 
