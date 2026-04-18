@@ -85,6 +85,7 @@ DeepSpeed 配置路径只来自：
 - 支持在 `config.prompting.composers` 下注册多个 composer。
 - 主程序启动时会预 tokenize prompts，并注入 `input["composers"]` 给 `step`。
 - 默认 `tokenizer_source` 绑定 `models.policy.path`。
+- `compose` 返回 `input_ids/attention_mask/lengths`；监督训练所需 `labels` 需在 `step` 内自行构造。
 
 ## 5. 继续阅读
 

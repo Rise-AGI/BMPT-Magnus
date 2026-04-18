@@ -33,6 +33,11 @@ def step(models, input):
 - `attention_mask`（可选）
 - `labels`（可选）
 
+当使用 `input["composers"]` 时：
+
+- `compose(...)` 返回 `input_ids/attention_mask/lengths`，不自动生成 `labels`。
+- 需要监督训练时，`step` 内应显式构造 `labels`，并将不参与监督的位置置为 `-100`。
+
 ## 3. 返回字段（最小必需）
 
 `step` 必须返回 `dict`，且至少包含：

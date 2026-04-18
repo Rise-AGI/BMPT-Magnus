@@ -111,3 +111,4 @@ bmpt-train --config src/bmpt/algorithms/config.yaml --attn-implementation sdpa
 
 - 启动日志打印 `loaded_composers=[...]`
 - `step` 内可从 `input["composers"]` 读取并调用 `compose(...)`
+- `compose` 输出可直接喂下游模型；若计算监督 loss，需要在 `step` 内构造 `labels`

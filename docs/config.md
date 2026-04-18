@@ -178,6 +178,7 @@ prompting:
 - `composers.<name>.prompts` 长度必须为 `N+1`，对应 `compose(outputs=[...])` 的 `N` 组 batched output。
 - `compose` 支持动态 padding，并受 `max_total_len` 限制。
 - 性能关键点：prompt 仅在启动时 tokenize 一次，step 内只做 token 级拼接。
+- `compose` 返回 `input_ids/attention_mask/lengths`，可直接喂给下一个模型；如需训练 loss，请在 `step` 内自行构造 `labels`。
 
 ## CLI 覆盖关系
 

@@ -46,6 +46,11 @@ return {
 
 - `compose(outputs, output_masks=None) -> {"input_ids", "attention_mask", "lengths"}`
 
+说明：
+
+- 返回的 `input_ids` 与 `attention_mask` 可直接作为下一个模型前向输入。
+- `compose` 当前不返回 `labels`；若要做监督训练，需要在 `step` 内按任务策略构造 `labels`（常见为非监督位填 `-100`）。
+
 用于在 `step` 内执行 token 级组合：
 
 - `[prompt] + [model1 out] + [prompt] + [model2 out] + ...`
