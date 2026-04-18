@@ -120,6 +120,11 @@ runtime:
   training_backend: pytorch   # pytorch | deepspeed
   distributed_backend: nccl
   attn_implementation: auto   # auto | flash_attention_2 | sdpa | eager
+  metrics:
+    enabled: true
+    window_size: 20
+    global_throughput: true
+    output: []                 # [] 不输出；可选 stdout / file:/path/to.log / 二者同时
   deepspeed_config_path: deepspeed_zero2.json
   compile: false
   gradient_checkpointing: true
@@ -131,6 +136,14 @@ runtime:
   - 推荐默认：`auto`
   - 可显式指定：`flash_attention_2`、`sdpa`、`eager`
   - 若指定/自动探测到 `flash_attention_2` 但环境不支持，会自动回退并告警。
+- `metrics` 控制训练性能日志：
+  - `window_size`：滑动窗口长度（用于 step 耗时与吞吐平均值）
+  - `global_throughput`：是否按全局口径统计吞吐（sum tokens/samples + max step time）；为降低通信开销，全局归约仅在 `log_every_steps` 命中时执行
+  - `output`：输出目标列表
+    - `[]`：默认不输出
+    - `stdout`：输出到控制台
+    - `file:/abs/path.log`：追加写入文件
+    - 支持同时配置 `stdout` 与 `file:...`
 - 使用 DeepSpeed 时会读取 `deepspeed_config_path` 指向的外部 JSON。
 - `gradient_checkpointing: true` 时，模型会设置 `use_cache=false` 并启用 `gradient_checkpointing_enable()`。
 - 训练入口会用 `train/config.yaml` 覆盖 DeepSpeed JSON 的关键训练参数：

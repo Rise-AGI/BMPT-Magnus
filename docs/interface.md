@@ -26,6 +26,8 @@
 - `metrics`: `dict[str, float]`
 - `aux`: `dict[str, Any]`（可选扩展）
 
+说明：训练框架会在日志阶段为 `metrics` 追加 `perf/*` 指标（如滑动窗口 step 耗时与吞吐），并复用同一 metrics 输出通道。
+
 示例：
 
 ```python

@@ -215,6 +215,38 @@
         "gradient_checkpointing": {
           "type": "boolean"
         },
+        "metrics": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "window_size": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "global_throughput": {
+              "type": "boolean"
+            },
+            "output": {
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        },
         "debug": {
           "type": "boolean"
         }

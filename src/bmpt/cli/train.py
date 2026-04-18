@@ -6,6 +6,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from importlib import import_module
 from importlib import util as importlib_util
 from pathlib import Path
@@ -24,6 +25,7 @@ from bmpt.core.distributed import (
     wrap_models_for_ddp,
 )
 from bmpt.core.engine import TrainingEngine
+from bmpt.core.logging import MetricsEmitter, StepMetricsLogger
 from bmpt.core.optim import build_optimizer, build_scheduler
 from bmpt.util import build_composers_from_config
 
@@ -468,6 +470,10 @@ def _run_pytorch_backend(
     step_fn: Callable[..., Any],
 ) -> None:
     train_cfg = config.get("train", {})
+    metrics_cfg = config.get("runtime", {}).get("metrics", {})
+    perf_logger = StepMetricsLogger.from_config(metrics_cfg)
+    metrics_emitter = MetricsEmitter.from_config(metrics_cfg)
+
     optimizer = build_optimizer(models, config)
     scheduler = build_scheduler(optimizer, config, total_training_steps=total_steps)
     engine = TrainingEngine(
@@ -492,16 +498,26 @@ def _run_pytorch_backend(
         last_step = idx + 1
 
         device_batch = move_to_device(batch, dist_ctx.device)
+        step_start_time = time.perf_counter()
         output = engine.run_micro_step(
             models=models,
             batch=device_batch,
             extra_input=static_step_input,
         )
+        step_time_sec = time.perf_counter() - step_start_time
+
+        perf_metrics = perf_logger.update(
+            step_time_sec=step_time_sec,
+            batch=device_batch,
+            device=dist_ctx.device,
+            sync_global=((idx + 1) % log_every == 0),
+        )
+        output["metrics"].update(perf_metrics)
 
         if (idx + 1) % log_every == 0:
             reduced = reduce_metrics(output["metrics"], dist_ctx)
             if is_main_process(dist_ctx):
-                print(f"step={idx + 1} metrics={reduced}")
+                metrics_emitter.emit(step_id=idx + 1, metrics=reduced)
 
         if checkpoint_every > 0 and (idx + 1) % checkpoint_every == 0 and is_main_process(dist_ctx):
             save_path = _save_pytorch_checkpoint(
@@ -544,6 +560,10 @@ def _run_deepspeed_backend(
         raise ImportError("deepspeed backend requires `deepspeed` package") from exc
 
     train_cfg = config.get("train", {})
+    metrics_cfg = config.get("runtime", {}).get("metrics", {})
+    perf_logger = StepMetricsLogger.from_config(metrics_cfg)
+    metrics_emitter = MetricsEmitter.from_config(metrics_cfg)
+
     ds_config = _load_deepspeed_config(config, config_path, total_steps=total_steps)
 
     policy_model = models["policy"].to(dist_ctx.device)
@@ -587,19 +607,29 @@ def _run_deepspeed_backend(
         last_step = idx + 1
 
         device_batch = move_to_device(batch, dist_ctx.device)
+        step_start_time = time.perf_counter()
         payload = {"batch": device_batch, "global_step": idx}
         payload.update(static_step_input)
         output = step_fn(models, payload)
         loss = output["loss"]
         ds_engine.backward(loss)
         ds_engine.step()
+        step_time_sec = time.perf_counter() - step_start_time
 
         metrics = dict(output.get("metrics", {}))
         metrics["engine/global_step"] = idx + 1
+        metrics.update(
+            perf_logger.update(
+                step_time_sec=step_time_sec,
+                batch=device_batch,
+                device=dist_ctx.device,
+                sync_global=((idx + 1) % log_every == 0),
+            )
+        )
         if (idx + 1) % log_every == 0:
             reduced = reduce_metrics(metrics, dist_ctx)
             if is_main_process(dist_ctx):
-                print(f"step={idx + 1} metrics={reduced}")
+                metrics_emitter.emit(step_id=idx + 1, metrics=reduced)
 
         if checkpoint_every > 0 and (idx + 1) % checkpoint_every == 0:
             tag = f"step_{idx + 1}"

@@ -87,6 +87,14 @@ DeepSpeed 配置路径只来自：
 - 默认 `tokenizer_source` 绑定 `models.policy.path`。
 - `compose` 返回 `input_ids/attention_mask/lengths`；监督训练所需 `labels` 需在 `step` 内自行构造。
 
+### Metrics 日志输出（可选）
+
+- 配置路径：`runtime.metrics.output`
+- 默认：`[]`（不输出）
+- 支持同时输出到控制台和文件：
+  - `stdout`
+  - `file:/abs/path/to/metrics.log`
+
 ## 5. 继续阅读
 
 - 算法接口：`agents/step_contract.md`

@@ -112,3 +112,20 @@ bmpt-train --config src/bmpt/algorithms/config.yaml --attn-implementation sdpa
 - 启动日志打印 `loaded_composers=[...]`
 - `step` 内可从 `input["composers"]` 读取并调用 `compose(...)`
 - `compose` 输出可直接喂下游模型；若计算监督 loss，需要在 `step` 内构造 `labels`
+
+## 配方 9：同时输出性能日志到控制台和文件
+
+配置：
+
+```yaml
+runtime:
+  metrics:
+    output:
+      - stdout
+      - file:/tmp/bmpt_metrics.log
+```
+
+预期信号：
+
+- 训练日志出现 `step=... metrics={...}`
+- 文件持续追加同样的 metrics 行
