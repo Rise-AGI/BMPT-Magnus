@@ -35,6 +35,11 @@ runtime:
   training_backend: deepspeed
   distributed_backend: nccl
   attn_implementation: auto
+  metrics:
+    enabled: true
+    window_size: 20
+    global_throughput: true
+    output: []
   deepspeed_config_path: deepspeed_zero2.json
   compile: false
   gradient_checkpointing: true
