@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import subprocess
 import sys
 from importlib import import_module
+from importlib import util as importlib_util
 from pathlib import Path
 from typing import Any, Callable, cast
 
@@ -29,6 +31,10 @@ def _default_config_path() -> str:
     return str(Path(__file__).resolve().parent.parent / "algorithms" / "config.yaml")
 
 
+def _default_def_train_module() -> str:
+    return "bmpt.algorithms.def_train"
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="BMPT training entrypoint")
     parser.add_argument(
@@ -48,8 +54,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--def-train",
-        default="bmpt.algorithms.def_train",
+        default=_default_def_train_module(),
         help="Training definition module path, e.g. bmpt.algorithms.def_train",
+    )
+    parser.add_argument(
+        "--workspace",
+        default=None,
+        help="Workspace directory used to auto-discover config and def_train.py",
     )
     parser.add_argument(
         "--max-steps",
@@ -109,6 +120,54 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def _arg_provided(raw_argv: list[str], flag: str) -> bool:
+    prefix = f"{flag}="
+    return any(token == flag or token.startswith(prefix) for token in raw_argv)
+
+
+def _find_workspace_candidates(workspace: Path, file_name: str) -> list[Path]:
+    candidates = [path.resolve() for path in workspace.rglob(file_name) if path.is_file()]
+    return sorted(candidates, key=lambda path: (len(path.relative_to(workspace).parts), str(path)))
+
+
+def _select_workspace_candidate(label: str, workspace: Path, candidates: list[Path]) -> Path:
+    chosen = candidates[0]
+    if len(candidates) > 1:
+        print(
+            f"[workspace] Found multiple {label} files under {workspace}. "
+            f"Using first candidate: {chosen}",
+            flush=True,
+        )
+    return chosen
+
+
+def _resolve_workspace_overrides(args: argparse.Namespace, raw_argv: list[str]) -> None:
+    if args.workspace is None:
+        return
+
+    workspace = Path(args.workspace).expanduser().resolve()
+    if not workspace.exists():
+        raise FileNotFoundError(f"Workspace not found: {workspace}")
+    if not workspace.is_dir():
+        raise NotADirectoryError(f"Workspace is not a directory: {workspace}")
+
+    config_is_manual = _arg_provided(raw_argv, "--config")
+    def_train_is_manual = _arg_provided(raw_argv, "--def-train")
+
+    if not config_is_manual:
+        config_candidates: list[Path] = []
+        for name in ("config.json", "config.yaml", "config.yml"):
+            config_candidates.extend(_find_workspace_candidates(workspace, name))
+        config_candidates = sorted(set(config_candidates), key=lambda path: (len(path.relative_to(workspace).parts), str(path)))
+        if config_candidates:
+            args.config = str(_select_workspace_candidate("config", workspace, config_candidates))
+
+    if not def_train_is_manual:
+        def_train_candidates = _find_workspace_candidates(workspace, "def_train.py")
+        if def_train_candidates:
+            args.def_train = str(_select_workspace_candidate("def_train", workspace, def_train_candidates))
+
+
 def _is_debug_enabled(config: dict[str, Any]) -> bool:
     return bool(config.get("runtime", {}).get("debug", False))
 
@@ -130,8 +189,32 @@ def _load_symbol(path: str) -> Callable[..., Any]:
     return getattr(module, symbol_name)
 
 
+def _load_module_from_path(module_path: str | Path):
+    path_obj = Path(module_path).expanduser().resolve()
+    if not path_obj.exists():
+        raise FileNotFoundError(f"Training definition file not found: {path_obj}")
+    if not path_obj.is_file():
+        raise ValueError(f"Training definition path is not a file: {path_obj}")
+
+    suffix = hashlib.sha1(str(path_obj).encode("utf-8")).hexdigest()[:12]
+    module_name = f"_bmpt_user_def_train_{suffix}"
+    spec = importlib_util.spec_from_file_location(module_name, path_obj)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Unable to load module from path: {path_obj}")
+
+    module = importlib_util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
 def _load_def_train_functions(def_train_module: str) -> tuple[Callable[..., Any], Callable[..., Any], Callable[..., Any]]:
-    module = import_module(def_train_module)
+    module_path = Path(def_train_module)
+    should_load_from_path = def_train_module.endswith(".py") or module_path.exists()
+    if should_load_from_path:
+        module = _load_module_from_path(def_train_module)
+    else:
+        module = import_module(def_train_module)
     load_config_fn = getattr(module, "load_config", None)
     build_models_from_config_fn = getattr(module, "build_models_from_config", None)
     step_fn = getattr(module, "step", None)
@@ -695,7 +778,10 @@ def _run_train_entry(args: argparse.Namespace) -> None:
 
 
 def main(argv: list[str] | None = None) -> None:
-    args = parse_args(argv)
+    raw_argv = list(sys.argv[1:] if argv is None else argv)
+    args = parse_args(raw_argv)
+    _resolve_workspace_overrides(args, raw_argv)
+
     if args.worker or _is_worker_env():
         _run_train_entry(args)
         return

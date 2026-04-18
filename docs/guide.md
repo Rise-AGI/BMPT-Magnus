@@ -27,6 +27,12 @@ pip install -e .[deepspeed]
 bmpt-train --backend pytorch --config src/bmpt/algorithms/config.yaml --max-steps 20
 ```
 
+也可以用 workspace 自动发现配置与 `def_train.py`：
+
+```bash
+bmpt-train --workspace /path/to/workspace --backend pytorch --max-steps 20
+```
+
 ## 4. DeepSpeed 路线
 
 ```bash

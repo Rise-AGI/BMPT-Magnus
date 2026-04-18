@@ -1,0 +1,232 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bmpt.local/agents/config.schema.json",
+  "title": "BMPT Training Config",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "seed": {
+      "type": "integer"
+    },
+    "models": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "path": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "trainable": {
+            "type": "boolean"
+          },
+          "lora": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "enabled": {
+                "type": "boolean"
+              },
+              "r": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "alpha": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "dropout": {
+                "type": "number",
+                "minimum": 0
+              },
+              "target_modules": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "optimizer": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "type",
+        "lr"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "adamw"
+          ]
+        },
+        "lr": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "weight_decay": {
+          "type": "number",
+          "minimum": 0
+        },
+        "betas": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "type": "number"
+          }
+        },
+        "eps": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      }
+    },
+    "scheduler": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "cosine",
+            "none"
+          ]
+        },
+        "warmup_steps": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "min_lr_ratio": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "train": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "control_mode": {
+          "type": "string",
+          "enum": [
+            "step",
+            "epoch"
+          ]
+        },
+        "epochs": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_steps": {
+          "type": "integer"
+        },
+        "per_device_batch_size": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "gradient_accumulation_steps": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_seq_len": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "mixed_precision": {
+          "type": "string",
+          "enum": [
+            "bf16",
+            "fp16",
+            "no"
+          ]
+        },
+        "grad_clip_norm": {
+          "type": "number",
+          "minimum": 0
+        },
+        "checkpoint_every_steps": {
+          "type": "integer"
+        },
+        "checkpoint_dir": {
+          "type": "string"
+        },
+        "log_every_steps": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "weighted": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "normalize_weights": {
+          "type": "boolean"
+        },
+        "weights": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "training_backend": {
+          "type": "string",
+          "enum": [
+            "pytorch",
+            "deepspeed"
+          ]
+        },
+        "distributed_backend": {
+          "type": "string"
+        },
+        "deepspeed_config_path": {
+          "type": "string"
+        },
+        "debug": {
+          "type": "boolean"
+        }
+      }
+    },
+    "data": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "train_path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "val_path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "prompt_key": {
+          "type": "string"
+        },
+        "response_key": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}
