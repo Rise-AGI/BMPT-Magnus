@@ -32,8 +32,9 @@ train:
 
 runtime:
   backend: accelerate
-  training_backend: pytorch
+  training_backend: deepspeed
   distributed_backend: nccl
+  attn_implementation: auto
   deepspeed_config_path: deepspeed_zero2.json
   debug: false
   compile: false

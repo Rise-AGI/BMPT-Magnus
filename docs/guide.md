@@ -75,7 +75,26 @@ bmpt-train --nnodes 2 --node-rank 1 --nproc-per-node 8 --master-addr <master_ip>
 bmpt-train --config src/bmpt/algorithms/config.yaml --loader bmpt.components.qwen_components:load_model --dataloader bmpt.components.qwen_components:build_dataloader
 ```
 
-## 7. 示例脚本
+## 7. Attention 实现选择
+
+默认推荐：
+
+```bash
+bmpt-train --config src/bmpt/algorithms/config.yaml --attn-implementation auto
+```
+
+手动指定：
+
+```bash
+bmpt-train --config src/bmpt/algorithms/config.yaml --attn-implementation sdpa
+```
+
+说明：
+
+- `auto` 会优先尝试 `flash_attention_2`。
+- 若当前环境不支持 FlashAttention，程序会自动回退并打印 warning。
+
+## 8. 示例脚本
 
 - 引擎示例：`python example/example_engine_loop.py`
 - 算法 step 示例：`python example/example_weighted_step.py`

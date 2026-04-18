@@ -83,3 +83,20 @@ bmpt-train --nnodes 2 --node-rank 1 --nproc-per-node 8 --master-addr <master_ip>
 预期信号：
 
 - DeepSpeed JSON 按“相对 `--config` 所在目录”正确解析
+
+## 配方 7：自定义 attention 实现
+
+命令：
+
+```bash
+bmpt-train --config src/bmpt/algorithms/config.yaml --attn-implementation auto
+```
+
+```bash
+bmpt-train --config src/bmpt/algorithms/config.yaml --attn-implementation sdpa
+```
+
+预期信号：
+
+- 启动日志打印 `requested_attn=... actual_attn=...`
+- 当 FlashAttention 不可用时，出现 warning 且继续训练

@@ -66,6 +66,24 @@ bmpt-train --nnodes 2 --node-rank 0 --nproc-per-node 8 --master-addr <master_ip>
 
 并按“相对 `--config` 文件目录”解析相对路径。
 
+### `attn_implementation`
+
+优先级从高到低：
+
+1. CLI `--attn-implementation`
+2. `runtime.attn_implementation`
+3. 兼容字段 `runtime.flash_attention=true`（等价于尝试 `flash_attention_2`）
+4. 默认 `auto`
+
+常见取值：
+
+- `auto`
+- `flash_attention_2`
+- `sdpa`
+- `eager`
+
+当请求 `flash_attention_2` 但环境不支持时，程序会自动回退到默认 attention，并打印 warning。
+
 ## 5. 常见示例
 
 使用 workspace 自动发现：
@@ -84,4 +102,10 @@ bmpt-train --workspace /path/to/workspace --config /path/to/another/config.yaml
 
 ```bash
 bmpt-train --config src/bmpt/algorithms/config.yaml --def-train /path/to/def_train.py
+```
+
+显式指定 attention 实现：
+
+```bash
+bmpt-train --config src/bmpt/algorithms/config.yaml --attn-implementation sdpa
 ```

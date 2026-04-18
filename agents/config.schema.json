@@ -199,6 +199,22 @@
         "deepspeed_config_path": {
           "type": "string"
         },
+        "attn_implementation": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "flash_attention_2",
+            "sdpa",
+            "eager",
+            "default"
+          ]
+        },
+        "flash_attention": {
+          "type": "boolean"
+        },
+        "gradient_checkpointing": {
+          "type": "boolean"
+        },
         "debug": {
           "type": "boolean"
         }

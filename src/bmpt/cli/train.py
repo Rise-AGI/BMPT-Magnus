@@ -85,6 +85,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Enable verbose debug logs",
     )
     parser.add_argument(
+        "--attn-implementation",
+        default=None,
+        help="Override runtime attention backend, e.g. auto/eager/sdpa/flash_attention_2",
+    )
+    parser.add_argument(
         "--nproc-per-node",
         type=int,
         default=None,
@@ -608,6 +613,7 @@ def run_train(
     def_train_module: str,
     max_steps_override: int | None = None,
     backend_override: str | None = None,
+    attn_implementation_override: str | None = None,
     save_final: bool = False,
     debug_override: bool = False,
 ) -> None:
@@ -615,6 +621,8 @@ def run_train(
     config = load_config_fn(config_path)
     if debug_override:
         config.setdefault("runtime", {})["debug"] = True
+    if attn_implementation_override is not None:
+        config.setdefault("runtime", {})["attn_implementation"] = attn_implementation_override
     backend = config.get("runtime", {}).get("distributed_backend", "nccl")
     dist_ctx = init_distributed(backend=backend)
 
@@ -706,6 +714,8 @@ def _build_worker_args(args: argparse.Namespace) -> list[str]:
         worker_args.append("--save-final")
     if args.debug:
         worker_args.append("--debug")
+    if args.attn_implementation is not None:
+        worker_args.extend(["--attn-implementation", args.attn_implementation])
     return worker_args
 
 
@@ -772,6 +782,7 @@ def _run_train_entry(args: argparse.Namespace) -> None:
         def_train_module=args.def_train,
         max_steps_override=args.max_steps,
         backend_override=args.backend,
+        attn_implementation_override=args.attn_implementation,
         save_final=args.save_final,
         debug_override=args.debug,
     )
