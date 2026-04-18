@@ -36,7 +36,21 @@ return {
 }
 ```
 
-## 4. 分布式约定
+## 4. `step(models, input)` 可选输入
+
+当配置了 `config.prompting.composers` 时，训练主程序会在启动阶段完成 prompt tokenize 并注入：
+
+- `input["composers"]: dict[str, Composer]`
+
+`Composer` 提供：
+
+- `compose(outputs, output_masks=None) -> {"input_ids", "attention_mask", "lengths"}`
+
+用于在 `step` 内执行 token 级组合：
+
+- `[prompt] + [model1 out] + [prompt] + [model2 out] + ...`
+
+## 5. 分布式约定
 
 - `bmpt-train` 支持 launcher 模式（`--nproc-per-node` 等参数）与 worker 模式（由环境变量 `RANK/WORLD_SIZE/LOCAL_RANK` 触发）。
 - worker 进程分布式初始化由 `bmpt.core.distributed.init_distributed` 统一处理。

@@ -243,6 +243,58 @@
           "type": "string"
         }
       }
+    },
+    "prompting": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "tokenizer_source": {
+          "type": "string"
+        },
+        "composers": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "prompts": {
+                "type": "array",
+                "minItems": 2,
+                "items": {
+                  "type": "string"
+                }
+              },
+              "max_total_len": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "truncate_side": {
+                "type": "string",
+                "enum": [
+                  "left",
+                  "right"
+                ]
+              },
+              "pad_to_multiple_of": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "add_bos": {
+                "type": "boolean"
+              },
+              "add_eos": {
+                "type": "boolean"
+              },
+              "output_pad_token_id": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              }
+            }
+          }
+        }
+      }
     }
   }
 }

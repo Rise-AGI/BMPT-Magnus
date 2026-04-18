@@ -80,6 +80,12 @@ DeepSpeed 配置路径只来自：
 
 推荐使用 `auto`，并允许在不支持 FlashAttention 时自动回退。
 
+### Prompt Composer（可选）
+
+- 支持在 `config.prompting.composers` 下注册多个 composer。
+- 主程序启动时会预 tokenize prompts，并注入 `input["composers"]` 给 `step`。
+- 默认 `tokenizer_source` 绑定 `models.policy.path`。
+
 ## 5. 继续阅读
 
 - 算法接口：`agents/step_contract.md`

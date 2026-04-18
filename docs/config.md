@@ -153,6 +153,32 @@ data:
 
 - `bmpt.components.qwen_components` 默认按 JSONL 读取该结构。
 
+## `prompting`（可选）
+
+用于注册多个 composer。训练主程序在启动阶段加载并预 tokenize prompt，然后将 `composers` 注入 `step(..., input)`。
+
+```yaml
+prompting:
+  tokenizer_source: policy
+  composers:
+    chain_a:
+      prompts:
+        - "请先总结："
+        - "请继续判断："
+        - "最终结论："
+      max_total_len: 4096
+      truncate_side: left          # left | right
+      pad_to_multiple_of: 8
+      add_bos: false
+      add_eos: false
+      output_pad_token_id: null
+```
+
+- `tokenizer_source` 默认绑定 `models.policy.path`。
+- `composers.<name>.prompts` 长度必须为 `N+1`，对应 `compose(outputs=[...])` 的 `N` 组 batched output。
+- `compose` 支持动态 padding，并受 `max_total_len` 限制。
+- 性能关键点：prompt 仅在启动时 tokenize 一次，step 内只做 token 级拼接。
+
 ## CLI 覆盖关系
 
 优先级从高到低：

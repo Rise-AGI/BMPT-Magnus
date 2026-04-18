@@ -112,3 +112,22 @@
 5. `ctx = build_step_context(...)`
 6. `model_dict = resolve_models(models, merged, input)`
 7. 在 `step` 内完成 forward / reward / loss 计算并返回
+
+## Composer 工具（`bmpt.util.composer`）
+
+当你需要在 `step` 内组合多段 token 序列时，使用：
+
+- `bmpt.util.Composer`
+- `bmpt.util.build_composers_from_config`
+
+主程序会在启动阶段读取 `config.prompting.composers`，预 tokenize prompts，并通过 `input["composers"]` 传入 `step`。
+
+典型组合形式：
+
+- `[prompt] + [model1 out] + [prompt] + [model2 out] + ...`
+
+`Composer.compose(...)` 输出：
+
+- `input_ids`
+- `attention_mask`
+- `lengths`

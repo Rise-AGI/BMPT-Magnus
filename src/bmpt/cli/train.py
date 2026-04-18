@@ -25,6 +25,7 @@ from bmpt.core.distributed import (
 )
 from bmpt.core.engine import TrainingEngine
 from bmpt.core.optim import build_optimizer, build_scheduler
+from bmpt.util import build_composers_from_config
 
 
 def _default_config_path() -> str:
@@ -418,6 +419,7 @@ def _run_validation(
     config: dict[str, Any],
     config_path: str | Path,
     dist_ctx: Any,
+    composers: dict[str, Any],
     step_fn: Callable[..., Any],
     phase: str,
 ) -> None:
@@ -427,6 +429,7 @@ def _run_validation(
         "config_path": str(config_path),
         "_cached_config": config,
         "_merged_config": config,
+        "composers": composers,
     }
 
     total_loss = 0.0
@@ -459,6 +462,7 @@ def _run_pytorch_backend(
     config: dict[str, Any],
     config_path: str | Path,
     dist_ctx: Any,
+    composers: dict[str, Any],
     total_steps: int,
     save_final: bool,
     step_fn: Callable[..., Any],
@@ -481,6 +485,7 @@ def _run_pytorch_backend(
         "config_path": str(config_path),
         "_cached_config": config,
         "_merged_config": config,
+        "composers": composers,
         "_debug": _is_debug_enabled(config),
     }
     for idx, batch in _iter_training_batches(data_iterable, config, total_steps):
@@ -528,6 +533,7 @@ def _run_deepspeed_backend(
     config: dict[str, Any],
     config_path: str | Path,
     dist_ctx: Any,
+    composers: dict[str, Any],
     total_steps: int,
     save_final: bool,
     step_fn: Callable[..., Any],
@@ -561,6 +567,7 @@ def _run_deepspeed_backend(
         "config_path": str(config_path),
         "_cached_config": config,
         "_merged_config": config,
+        "composers": composers,
         "_debug": _is_debug_enabled(config),
     }
 
@@ -571,6 +578,7 @@ def _run_deepspeed_backend(
             config=config,
             config_path=config_path,
             dist_ctx=dist_ctx,
+            composers=composers,
             step_fn=step_fn,
             phase="before_train",
         )
@@ -623,6 +631,9 @@ def run_train(
         config.setdefault("runtime", {})["debug"] = True
     if attn_implementation_override is not None:
         config.setdefault("runtime", {})["attn_implementation"] = attn_implementation_override
+    composers = build_composers_from_config(config)
+    if len(composers) > 0 and int(os.getenv("RANK", "0")) == 0:
+        print(f"[bmpt] loaded_composers={list(composers.keys())}", flush=True)
     backend = config.get("runtime", {}).get("distributed_backend", "nccl")
     dist_ctx = init_distributed(backend=backend)
 
@@ -643,6 +654,7 @@ def run_train(
                 config=config,
                 config_path=config_path,
                 dist_ctx=dist_ctx,
+                composers=composers,
                 step_fn=step_fn,
                 phase="before_train",
             )
@@ -658,6 +670,7 @@ def run_train(
                 config=config,
                 config_path=config_path,
                 dist_ctx=dist_ctx,
+                composers=composers,
                 total_steps=total_steps,
                 save_final=save_final,
                 step_fn=step_fn,
@@ -669,6 +682,7 @@ def run_train(
                 config=config,
                 config_path=config_path,
                 dist_ctx=dist_ctx,
+                composers=composers,
                 total_steps=total_steps,
                 save_final=save_final,
                 step_fn=step_fn,
@@ -682,6 +696,7 @@ def run_train(
                 config=config,
                 config_path=config_path,
                 dist_ctx=dist_ctx,
+                composers=composers,
                 step_fn=step_fn,
                 phase="after_train",
             )

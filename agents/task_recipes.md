@@ -100,3 +100,14 @@ bmpt-train --config src/bmpt/algorithms/config.yaml --attn-implementation sdpa
 
 - 启动日志打印 `requested_attn=... actual_attn=...`
 - 当 FlashAttention 不可用时，出现 warning 且继续训练
+
+## 配方 8：使用 prompting composer
+
+配置：
+
+- 在 `config.prompting.composers` 注册多个 composer。
+
+预期信号：
+
+- 启动日志打印 `loaded_composers=[...]`
+- `step` 内可从 `input["composers"]` 读取并调用 `compose(...)`
