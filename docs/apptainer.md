@@ -30,14 +30,39 @@ apptainer run --nv --bind $(pwd):/workspace brisk-torch.sif
 apptainer run --nv --bind $(pwd):/workspace brisk-deepspeed.sif
 ```
 
+覆盖 attention 实现（传给 `bmpt-train`）：
+
+```bash
+apptainer run --nv --bind $(pwd):/workspace brisk-deepspeed.sif -- --attn-implementation auto
+```
+
+```bash
+apptainer run --nv --bind $(pwd):/workspace brisk-deepspeed.sif -- --attn-implementation sdpa
+```
+
 DeepSpeed 镜像默认不编译自定义算子（`DS_BUILD_OPS=0`），避免编译依赖问题（如 `oneapi/ccl.hpp` 缺失）。
 如需启用自定义算子编译，可手动改回 `DS_BUILD_OPS=1` 并补齐对应编译环境。
 
 ## 说明
 
 - 默认工作目录为 `/workspace`（通过 `--bind $(pwd):/workspace` 挂载当前项目）。
-- 默认命令分别对应 `--backend pytorch` 或 `--backend deepspeed`。
+- 默认命令分别对应 `bmpt-train --backend pytorch --config train/config.yaml` 或 `bmpt-train --backend deepspeed --config train/config.yaml`。
 - 可在 `apptainer run ... -- <args>` 追加参数覆盖默认行为。
+
+## FlashAttention 依赖
+
+- `apptainer/*.def` 在构建时会尝试安装 `flash-attn`。
+- 若安装失败，训练会自动回退到默认 attention（配合 `attn_implementation=auto` 的回退策略）。
+
+容器内验证命令：
+
+```bash
+python3 -c "import torch; print(torch.__version__)"
+```
+
+```bash
+python3 -c "import flash_attn; print(flash_attn.__version__)"
+```
 
 ## 构建失败备用方案（localimage）
 

@@ -22,6 +22,7 @@ From: pytorch/pytorch:2.5.1-cuda12.1-cudnn9-devel
 
     pip install --no-cache-dir -r /opt/brisk/requirements.common.txt -r /opt/brisk/requirements.torch.txt
     DS_BUILD_OPS=0 pip install --no-cache-dir -r /opt/brisk/requirements.deepspeed.txt
+    pip install --no-cache-dir flash-attn --no-build-isolation || echo "[BMPT] flash-attn install failed; runtime will fallback to default attention"
 
 %environment
     export PYTHONDONTWRITEBYTECODE=1
@@ -29,4 +30,4 @@ From: pytorch/pytorch:2.5.1-cuda12.1-cudnn9-devel
 
 %runscript
     cd /workspace
-    exec python main.py --entry train --backend deepspeed --config train/config.yaml "$@"
+    exec bmpt-train --backend deepspeed --config train/config.yaml "$@"

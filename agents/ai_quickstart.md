@@ -69,6 +69,17 @@ DeepSpeed 配置路径只来自：
 
 不使用 `--deepspeed-config` 这类 CLI 选项。
 
+### Attention 配置来源
+
+优先级从高到低：
+
+1. CLI `--attn-implementation`
+2. `runtime.attn_implementation`
+3. `runtime.flash_attention=true`（兼容字段）
+4. 默认 `auto`
+
+推荐使用 `auto`，并允许在不支持 FlashAttention 时自动回退。
+
 ## 5. 继续阅读
 
 - 算法接口：`agents/step_contract.md`
