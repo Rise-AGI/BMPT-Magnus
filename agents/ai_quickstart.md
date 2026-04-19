@@ -75,7 +75,7 @@ Checkpoint 恢复同样只来自训练配置（非 CLI）：
 
 - `train.load_ckpt_path`
 - `train.load_ckpt_mode`（`full` / `weights_only`）
-- `train.load_ckpt_strict`
+- `train.load_ckpt_strict`（是否严格按参数名/shape 匹配权重）
 
 最小示例：
 
