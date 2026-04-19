@@ -27,7 +27,7 @@ train:
   mixed_precision: bf16
   grad_clip_norm: 1.0
   checkpoint_every_steps: 200
-  checkpoint_dir: checkpoints/qwen25_sft_fullparam_torch
+  checkpoint_dir: /data/rl-group/checkpoints/qwen25_sft_fullparam_torch
   log_every_steps: 10
 
 runtime:
