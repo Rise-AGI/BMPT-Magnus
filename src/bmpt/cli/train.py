@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import json
 import os
 import subprocess
 import sys
 import time
+from datetime import datetime, timezone
 from importlib import import_module
 from importlib import util as importlib_util
 from pathlib import Path
@@ -24,6 +26,7 @@ from bmpt.core.distributed import (
     reduce_metrics,
     wrap_models_for_ddp,
 )
+from bmpt.core.async_checkpoint import AsyncCheckpointWriter
 from bmpt.core.engine import TrainingEngine
 from bmpt.core.logging import MetricsEmitter, StepMetricsLogger
 from bmpt.core.optim import build_optimizer, build_scheduler
@@ -302,10 +305,16 @@ def _iter_training_batches(
     data_iterable: Any,
     config: dict[str, Any],
     total_steps: int,
+    start_step: int = 0,
 ):
+    if start_step >= total_steps:
+        return
+
     mode = _resolve_train_control_mode(config)
     if mode == "step":
         for step_idx, batch in enumerate(data_iterable):
+            if step_idx < start_step:
+                continue
             if step_idx >= total_steps:
                 break
             yield step_idx, batch
@@ -321,6 +330,9 @@ def _iter_training_batches(
         for batch in data_iterable:
             if global_step >= total_steps:
                 return
+            if global_step < start_step:
+                global_step += 1
+                continue
             yield global_step, batch
             global_step += 1
 
@@ -347,26 +359,347 @@ def _unwrap_model(model: torch.nn.Module) -> torch.nn.Module:
     return model
 
 
-def _save_pytorch_checkpoint(
+def _clone_to_cpu(value: Any) -> Any:
+    if isinstance(value, torch.Tensor):
+        return value.detach().to("cpu").clone()
+    if isinstance(value, dict):
+        return {key: _clone_to_cpu(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_clone_to_cpu(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_clone_to_cpu(item) for item in value)
+    return copy.deepcopy(value)
+
+
+def _checkpoint_file_path(
+    checkpoint_dir: Path, base_name: str, rank: int, world_size: int
+) -> Path:
+    if world_size <= 1:
+        return checkpoint_dir / f"{base_name}.pt"
+    return checkpoint_dir / f"{base_name}.rank_{rank}.pt"
+
+
+def _extract_resume_config(config: dict[str, Any]) -> dict[str, Any]:
+    train_cfg = config.get("train", {})
+    runtime_cfg = config.get("runtime", {})
+    return {
+        "optimizer": copy.deepcopy(config.get("optimizer", {})),
+        "scheduler": copy.deepcopy(config.get("scheduler", {})),
+        "train": {
+            "gradient_accumulation_steps": int(
+                train_cfg.get("gradient_accumulation_steps", 1)
+            ),
+            "mixed_precision": str(train_cfg.get("mixed_precision", "bf16")),
+        },
+        "runtime": {
+            "training_backend": str(runtime_cfg.get("training_backend", "pytorch"))
+        },
+    }
+
+
+def _build_checkpoint_payload(
+    *,
+    backend: str,
+    global_step: int,
+    models: dict[str, torch.nn.Module],
+    optimizer: Any,
+    scheduler: Any,
+    resume_config: dict[str, Any],
+    rank: int,
+    world_size: int,
+    engine_state: dict[str, int] | None,
+) -> dict[str, Any]:
+    model_states: dict[str, Any] = {}
+    for name, model in models.items():
+        model_states[name] = _clone_to_cpu(_unwrap_model(model).state_dict())
+    return {
+        "format_version": 2,
+        "backend": backend,
+        "global_step": int(global_step),
+        "models": model_states,
+        "optimizer": _clone_to_cpu(optimizer.state_dict())
+        if optimizer is not None
+        else None,
+        "scheduler": _clone_to_cpu(scheduler.state_dict())
+        if scheduler is not None
+        else None,
+        "engine_state": engine_state,
+        "resume_config": _clone_to_cpu(resume_config),
+        "meta": {
+            "rank": rank,
+            "world_size": world_size,
+            "saved_at": datetime.now(timezone.utc).isoformat(),
+        },
+    }
+
+
+def _resolve_load_ckpt_settings(
+    config: dict[str, Any], config_path: str | Path
+) -> tuple[Path | None, str, bool]:
+    train_cfg = config.get("train", {})
+    raw_path = train_cfg.get("load_ckpt_path")
+    mode = str(train_cfg.get("load_ckpt_mode", "full")).lower()
+    strict = bool(train_cfg.get("load_ckpt_strict", True))
+
+    if mode not in {"full", "weights_only"}:
+        raise ValueError(f"Unsupported train.load_ckpt_mode: {mode}")
+    if raw_path in {None, ""}:
+        return None, mode, strict
+
+    ckpt_path = Path(str(raw_path))
+    if not ckpt_path.is_absolute():
+        ckpt_path = Path(config_path).parent / ckpt_path
+    return ckpt_path.resolve(), mode, strict
+
+
+def _resolve_ranked_load_path(path: Path, rank: int, world_size: int) -> Path:
+    if path.exists() or world_size <= 1:
+        return path
+    ranked = path.with_name(f"{path.stem}.rank_{rank}{path.suffix}")
+    if ranked.exists():
+        return ranked
+    return path
+
+
+def _load_checkpoint_payload(
+    path: Path, rank: int, world_size: int
+) -> tuple[dict[str, Any], Path]:
+    ranked_path = _resolve_ranked_load_path(path, rank, world_size)
+    if not ranked_path.exists():
+        raise FileNotFoundError(f"Checkpoint not found: {ranked_path}")
+    payload = torch.load(ranked_path, map_location="cpu")
+    if not isinstance(payload, dict):
+        raise TypeError(f"Checkpoint payload must be dict, got: {type(payload)}")
+    return payload, ranked_path
+
+
+def _flatten_leaf_values(prefix: str, value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        if len(value) == 0:
+            return {prefix: {}}
+        flattened: dict[str, Any] = {}
+        for key, item in value.items():
+            child_key = f"{prefix}.{key}" if prefix else str(key)
+            flattened.update(_flatten_leaf_values(child_key, item))
+        return flattened
+    return {prefix: value}
+
+
+def _format_value(value: Any) -> str:
+    if isinstance(value, str):
+        return value
+    return repr(value)
+
+
+def _log_resume_diff(
+    path: str,
+    old_value: Any,
+    new_value: Any,
+    override: bool,
+    emit_logs: bool,
+) -> None:
+    if not emit_logs:
+        return
+    if old_value == new_value:
+        print(
+            f"[ckpt] override config: {path} {_format_value(old_value)} -> {_format_value(new_value)} (unchanged skipped)",
+            flush=True,
+        )
+        return
+    if override:
+        print(
+            f"[ckpt] override config: {path} {_format_value(old_value)} -> {_format_value(new_value)} (source=ckpt)",
+            flush=True,
+        )
+        return
+    print(
+        f"[ckpt] config diff: {path} {_format_value(old_value)} -> {_format_value(new_value)} (weights_only not overridden)",
+        flush=True,
+    )
+
+
+def _apply_or_report_resume_config(
+    config: dict[str, Any], payload: dict[str, Any], mode: str, emit_logs: bool
+) -> None:
+    resume_cfg = payload.get("resume_config")
+    if not isinstance(resume_cfg, dict):
+        return
+
+    should_override = mode == "full"
+
+    old_optimizer = copy.deepcopy(config.get("optimizer", {}))
+    new_optimizer = copy.deepcopy(resume_cfg.get("optimizer", {}))
+    old_scheduler = copy.deepcopy(config.get("scheduler", {}))
+    new_scheduler = copy.deepcopy(resume_cfg.get("scheduler", {}))
+
+    merged_keys = sorted(
+        set(_flatten_leaf_values("optimizer", old_optimizer)).union(
+            _flatten_leaf_values("optimizer", new_optimizer)
+        )
+    )
+    old_flat_optimizer = _flatten_leaf_values("optimizer", old_optimizer)
+    new_flat_optimizer = _flatten_leaf_values("optimizer", new_optimizer)
+    for key in merged_keys:
+        _log_resume_diff(
+            key,
+            old_flat_optimizer.get(key),
+            new_flat_optimizer.get(key),
+            should_override,
+            emit_logs,
+        )
+
+    merged_scheduler_keys = sorted(
+        set(_flatten_leaf_values("scheduler", old_scheduler)).union(
+            _flatten_leaf_values("scheduler", new_scheduler)
+        )
+    )
+    old_flat_scheduler = _flatten_leaf_values("scheduler", old_scheduler)
+    new_flat_scheduler = _flatten_leaf_values("scheduler", new_scheduler)
+    for key in merged_scheduler_keys:
+        _log_resume_diff(
+            key,
+            old_flat_scheduler.get(key),
+            new_flat_scheduler.get(key),
+            should_override,
+            emit_logs,
+        )
+
+    old_grad_accum = config.get("train", {}).get("gradient_accumulation_steps")
+    new_grad_accum = resume_cfg.get("train", {}).get("gradient_accumulation_steps")
+    _log_resume_diff(
+        "train.gradient_accumulation_steps",
+        old_grad_accum,
+        new_grad_accum,
+        should_override,
+        emit_logs,
+    )
+
+    old_precision = config.get("train", {}).get("mixed_precision")
+    new_precision = resume_cfg.get("train", {}).get("mixed_precision")
+    _log_resume_diff(
+        "train.mixed_precision",
+        old_precision,
+        new_precision,
+        should_override,
+        emit_logs,
+    )
+
+    old_backend = config.get("runtime", {}).get("training_backend")
+    new_backend = resume_cfg.get("runtime", {}).get("training_backend")
+    _log_resume_diff(
+        "runtime.training_backend",
+        old_backend,
+        new_backend,
+        should_override,
+        emit_logs,
+    )
+
+    if not should_override:
+        return
+
+    config["optimizer"] = new_optimizer
+    config["scheduler"] = new_scheduler
+    config.setdefault("train", {})["gradient_accumulation_steps"] = new_grad_accum
+    config.setdefault("train", {})["mixed_precision"] = new_precision
+    config.setdefault("runtime", {})["training_backend"] = new_backend
+
+
+def _restore_model_states(
+    models: dict[str, torch.nn.Module],
+    model_states: dict[str, Any],
+    strict: bool,
+) -> None:
+    for model_name, model in models.items():
+        model_state = model_states.get(model_name)
+        if model_state is None:
+            if strict:
+                raise KeyError(f"Missing model state for `{model_name}` in checkpoint")
+            continue
+        target_model = _unwrap_model(model)
+        target_model.load_state_dict(model_state, strict=strict)
+
+
+def _restore_pytorch_state(
+    *,
+    payload: dict[str, Any],
     models: dict[str, torch.nn.Module],
     optimizer: torch.optim.Optimizer,
     scheduler: torch.optim.lr_scheduler._LRScheduler
     | torch.optim.lr_scheduler.LambdaLR
     | None,
-    checkpoint_dir: Path,
-    step_id: int,
-) -> Path:
-    save_path = checkpoint_dir / f"step_{step_id}.pt"
-    state = {
-        "global_step": step_id,
-        "models": {
-            name: _unwrap_model(model).state_dict() for name, model in models.items()
-        },
-        "optimizer": optimizer.state_dict(),
-        "scheduler": scheduler.state_dict() if scheduler is not None else None,
-    }
-    torch.save(state, save_path)
-    return save_path
+    engine: TrainingEngine,
+    mode: str,
+    strict: bool,
+) -> int:
+    model_states = payload.get("models")
+    if not isinstance(model_states, dict):
+        raise KeyError("Checkpoint missing `models` dict")
+    _restore_model_states(models, model_states, strict=strict)
+
+    if mode == "weights_only":
+        return 0
+
+    optimizer_state = payload.get("optimizer")
+    if optimizer_state is None:
+        raise KeyError("Checkpoint missing `optimizer` state for full resume")
+    optimizer.load_state_dict(optimizer_state)
+
+    scheduler_state = payload.get("scheduler")
+    if scheduler is not None and scheduler_state is not None:
+        scheduler.load_state_dict(scheduler_state)
+
+    global_step = int(payload.get("global_step", 0))
+    engine_state = payload.get("engine_state")
+    if isinstance(engine_state, dict):
+        engine.state.micro_step = int(engine_state.get("micro_step", global_step))
+        engine.state.optimizer_step = int(
+            engine_state.get("optimizer_step", engine.state.optimizer_step)
+        )
+    else:
+        engine.state.micro_step = global_step
+    engine.state.global_step = int(engine.state.optimizer_step)
+    return global_step
+
+
+def _restore_deepspeed_state(
+    *,
+    payload: dict[str, Any],
+    models: dict[str, torch.nn.Module],
+    ds_engine: Any,
+    mode: str,
+    strict: bool,
+) -> int:
+    model_states = payload.get("models")
+    if not isinstance(model_states, dict):
+        raise KeyError("Checkpoint missing `models` dict")
+
+    restored_models = dict(models)
+    restored_models["policy"] = cast(torch.nn.Module, ds_engine.module)
+    _restore_model_states(restored_models, model_states, strict=strict)
+
+    if mode == "weights_only":
+        return 0
+
+    optimizer_state = payload.get("optimizer")
+    if (
+        optimizer_state is not None
+        and getattr(ds_engine, "optimizer", None) is not None
+    ):
+        ds_engine.optimizer.load_state_dict(optimizer_state)
+
+    scheduler_state = payload.get("scheduler")
+    if (
+        scheduler_state is not None
+        and getattr(ds_engine, "lr_scheduler", None) is not None
+    ):
+        ds_engine.lr_scheduler.load_state_dict(scheduler_state)
+
+    global_step = int(payload.get("global_step", 0))
+    if hasattr(ds_engine, "global_steps"):
+        setattr(ds_engine, "global_steps", global_step)
+    if hasattr(ds_engine, "micro_steps"):
+        setattr(ds_engine, "micro_steps", global_step)
+    return global_step
 
 
 def _resolve_deepspeed_config_path(
@@ -503,6 +836,9 @@ def _run_pytorch_backend(
     total_steps: int,
     save_final: bool,
     step_fn: Callable[..., Any],
+    load_ckpt_payload: dict[str, Any] | None,
+    load_ckpt_mode: str,
+    load_ckpt_strict: bool,
 ) -> None:
     train_cfg = config.get("train", {})
     metrics_cfg = config.get("runtime", {}).get("metrics", {})
@@ -521,7 +857,26 @@ def _run_pytorch_backend(
 
     log_every = int(train_cfg.get("log_every_steps", 10))
     checkpoint_every, checkpoint_dir = _checkpoint_settings(config)
-    last_step = 0
+    writer = AsyncCheckpointWriter(max_pending=1)
+    resume_start_step = 0
+    if load_ckpt_payload is not None:
+        resume_start_step = _restore_pytorch_state(
+            payload=load_ckpt_payload,
+            models=models,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            engine=engine,
+            mode=load_ckpt_mode,
+            strict=load_ckpt_strict,
+        )
+        if _is_rank0():
+            print(
+                f"[ckpt] resumed from step={resume_start_step} mode={load_ckpt_mode}",
+                flush=True,
+            )
+
+    resume_config = _extract_resume_config(config)
+    last_step = resume_start_step
     static_step_input = {
         "config_path": str(config_path),
         "_cached_config": config,
@@ -529,59 +884,89 @@ def _run_pytorch_backend(
         "composers": composers,
         "_debug": _is_debug_enabled(config),
     }
-    for idx, batch in _iter_training_batches(data_iterable, config, total_steps):
-        last_step = idx + 1
-
-        device_batch = move_to_device(batch, dist_ctx.device)
-        step_start_time = time.perf_counter()
-        output = engine.run_micro_step(
-            models=models,
-            batch=device_batch,
-            extra_input=static_step_input,
-        )
-        step_time_sec = time.perf_counter() - step_start_time
-
-        perf_metrics = perf_logger.update(
-            step_time_sec=step_time_sec,
-            batch=device_batch,
-            device=dist_ctx.device,
-            sync_global=((idx + 1) % log_every == 0),
-        )
-        output["metrics"].update(perf_metrics)
-
-        if (idx + 1) % log_every == 0:
-            reduced = reduce_metrics(output["metrics"], dist_ctx)
-            if is_main_process(dist_ctx):
-                metrics_emitter.emit(step_id=idx + 1, metrics=reduced)
-
-        if (
-            checkpoint_every > 0
-            and (idx + 1) % checkpoint_every == 0
-            and is_main_process(dist_ctx)
+    try:
+        for idx, batch in _iter_training_batches(
+            data_iterable, config, total_steps, start_step=resume_start_step
         ):
-            save_path = _save_pytorch_checkpoint(
+            current_step = idx + 1
+            last_step = current_step
+
+            device_batch = move_to_device(batch, dist_ctx.device)
+            step_start_time = time.perf_counter()
+            output = engine.run_micro_step(
+                models=models,
+                batch=device_batch,
+                extra_input=static_step_input,
+            )
+            step_time_sec = time.perf_counter() - step_start_time
+
+            perf_metrics = perf_logger.update(
+                step_time_sec=step_time_sec,
+                batch=device_batch,
+                device=dist_ctx.device,
+                sync_global=(current_step % log_every == 0),
+            )
+            output["metrics"].update(perf_metrics)
+
+            if current_step % log_every == 0:
+                reduced = reduce_metrics(output["metrics"], dist_ctx)
+                if is_main_process(dist_ctx):
+                    metrics_emitter.emit(step_id=current_step, metrics=reduced)
+
+            if checkpoint_every > 0 and current_step % checkpoint_every == 0:
+                save_path = _checkpoint_file_path(
+                    checkpoint_dir,
+                    f"step_{current_step}",
+                    rank=dist_ctx.rank,
+                    world_size=dist_ctx.world_size,
+                )
+                payload = _build_checkpoint_payload(
+                    backend="pytorch",
+                    global_step=current_step,
+                    models=models,
+                    optimizer=optimizer,
+                    scheduler=scheduler,
+                    resume_config=resume_config,
+                    rank=dist_ctx.rank,
+                    world_size=dist_ctx.world_size,
+                    engine_state={
+                        "micro_step": int(engine.state.micro_step),
+                        "optimizer_step": int(engine.state.optimizer_step),
+                    },
+                )
+                writer.enqueue(save_path, payload)
+                if is_main_process(dist_ctx):
+                    print(f"checkpoint_enqueued={save_path}")
+
+        if save_final:
+            final_step = max(last_step, resume_start_step, 1)
+            save_path = _checkpoint_file_path(
+                checkpoint_dir,
+                "latest",
+                rank=dist_ctx.rank,
+                world_size=dist_ctx.world_size,
+            )
+            payload = _build_checkpoint_payload(
+                backend="pytorch",
+                global_step=final_step,
                 models=models,
                 optimizer=optimizer,
                 scheduler=scheduler,
-                checkpoint_dir=checkpoint_dir,
-                step_id=idx + 1,
+                resume_config=resume_config,
+                rank=dist_ctx.rank,
+                world_size=dist_ctx.world_size,
+                engine_state={
+                    "micro_step": int(engine.state.micro_step),
+                    "optimizer_step": int(engine.state.optimizer_step),
+                },
             )
-            print(f"checkpoint_saved={save_path}")
+            writer.enqueue(save_path, payload)
+            if is_main_process(dist_ctx):
+                print(f"checkpoint_enqueued={save_path}")
 
-    if save_final and is_main_process(dist_ctx):
-        final_step = max(last_step, 1)
-        save_path = checkpoint_dir / "latest.pt"
-        state = {
-            "global_step": final_step,
-            "models": {
-                name: _unwrap_model(model).state_dict()
-                for name, model in models.items()
-            },
-            "optimizer": optimizer.state_dict(),
-            "scheduler": scheduler.state_dict() if scheduler is not None else None,
-        }
-        torch.save(state, save_path)
-        print(f"checkpoint_saved={save_path}")
+        writer.flush()
+    finally:
+        writer.close()
 
 
 def _run_deepspeed_backend(
@@ -596,6 +981,9 @@ def _run_deepspeed_backend(
     save_final: bool,
     step_fn: Callable[..., Any],
     evaluate_fn: Callable[..., Any],
+    load_ckpt_payload: dict[str, Any] | None,
+    load_ckpt_mode: str,
+    load_ckpt_strict: bool,
 ) -> None:
     try:
         deepspeed = import_module("deepspeed")
@@ -627,7 +1015,24 @@ def _run_deepspeed_backend(
 
     log_every = int(train_cfg.get("log_every_steps", 10))
     checkpoint_every, checkpoint_dir = _checkpoint_settings(config)
-    last_step = 0
+    writer = AsyncCheckpointWriter(max_pending=1)
+    resume_start_step = 0
+    if load_ckpt_payload is not None:
+        resume_start_step = _restore_deepspeed_state(
+            payload=load_ckpt_payload,
+            models=models,
+            ds_engine=ds_engine,
+            mode=load_ckpt_mode,
+            strict=load_ckpt_strict,
+        )
+        if _is_rank0():
+            print(
+                f"[ckpt] resumed from step={resume_start_step} mode={load_ckpt_mode}",
+                flush=True,
+            )
+
+    resume_config = _extract_resume_config(config)
+    last_step = resume_start_step
     static_step_input = {
         "config_path": str(config_path),
         "_cached_config": config,
@@ -648,49 +1053,96 @@ def _run_deepspeed_backend(
             phase="before_train",
         )
 
-    for idx, batch in _iter_training_batches(data_iterable, config, total_steps):
-        last_step = idx + 1
+    try:
+        for idx, batch in _iter_training_batches(
+            data_iterable, config, total_steps, start_step=resume_start_step
+        ):
+            current_step = idx + 1
+            last_step = current_step
 
-        device_batch = move_to_device(batch, dist_ctx.device)
-        step_start_time = time.perf_counter()
-        payload = {"batch": device_batch, "global_step": idx}
-        payload.update(static_step_input)
-        output = step_fn(models, payload)
-        loss = output["loss"]
-        ds_engine.backward(loss)
-        ds_engine.step()
-        step_time_sec = time.perf_counter() - step_start_time
+            device_batch = move_to_device(batch, dist_ctx.device)
+            step_start_time = time.perf_counter()
+            payload = {"batch": device_batch, "global_step": idx}
+            payload.update(static_step_input)
+            output = step_fn(models, payload)
+            loss = output["loss"]
+            ds_engine.backward(loss)
+            ds_engine.step()
+            step_time_sec = time.perf_counter() - step_start_time
 
-        metrics = dict(output.get("metrics", {}))
-        metrics["engine/global_step"] = idx + 1
-        metrics.update(
-            perf_logger.update(
-                step_time_sec=step_time_sec,
-                batch=device_batch,
-                device=dist_ctx.device,
-                sync_global=((idx + 1) % log_every == 0),
+            metrics = dict(output.get("metrics", {}))
+            metrics["engine/global_step"] = current_step
+            metrics.update(
+                perf_logger.update(
+                    step_time_sec=step_time_sec,
+                    batch=device_batch,
+                    device=dist_ctx.device,
+                    sync_global=(current_step % log_every == 0),
+                )
             )
-        )
-        if (idx + 1) % log_every == 0:
-            reduced = reduce_metrics(metrics, dist_ctx)
-            if is_main_process(dist_ctx):
-                metrics_emitter.emit(step_id=idx + 1, metrics=reduced)
+            if current_step % log_every == 0:
+                reduced = reduce_metrics(metrics, dist_ctx)
+                if is_main_process(dist_ctx):
+                    metrics_emitter.emit(step_id=current_step, metrics=reduced)
 
-        if checkpoint_every > 0 and (idx + 1) % checkpoint_every == 0:
-            tag = f"step_{idx + 1}"
-            ds_engine.save_checkpoint(
-                str(checkpoint_dir), tag=tag, client_state={"global_step": idx + 1}
+            if checkpoint_every > 0 and current_step % checkpoint_every == 0:
+                save_path = _checkpoint_file_path(
+                    checkpoint_dir,
+                    f"step_{current_step}",
+                    rank=dist_ctx.rank,
+                    world_size=dist_ctx.world_size,
+                )
+                models_for_save = dict(models)
+                models_for_save["policy"] = cast(torch.nn.Module, ds_engine.module)
+                payload = _build_checkpoint_payload(
+                    backend="deepspeed",
+                    global_step=current_step,
+                    models=models_for_save,
+                    optimizer=getattr(ds_engine, "optimizer", None),
+                    scheduler=getattr(ds_engine, "lr_scheduler", None),
+                    resume_config=resume_config,
+                    rank=dist_ctx.rank,
+                    world_size=dist_ctx.world_size,
+                    engine_state={
+                        "micro_step": int(current_step),
+                        "optimizer_step": int(current_step),
+                    },
+                )
+                writer.enqueue(save_path, payload)
+                if is_main_process(dist_ctx):
+                    print(f"checkpoint_enqueued={save_path}")
+
+        if save_final:
+            final_step = max(last_step, resume_start_step, 1)
+            save_path = _checkpoint_file_path(
+                checkpoint_dir,
+                "latest",
+                rank=dist_ctx.rank,
+                world_size=dist_ctx.world_size,
             )
+            models_for_save = dict(models)
+            models_for_save["policy"] = cast(torch.nn.Module, ds_engine.module)
+            payload = _build_checkpoint_payload(
+                backend="deepspeed",
+                global_step=final_step,
+                models=models_for_save,
+                optimizer=getattr(ds_engine, "optimizer", None),
+                scheduler=getattr(ds_engine, "lr_scheduler", None),
+                resume_config=resume_config,
+                rank=dist_ctx.rank,
+                world_size=dist_ctx.world_size,
+                engine_state={
+                    "micro_step": int(final_step),
+                    "optimizer_step": int(final_step),
+                },
+            )
+            writer.enqueue(save_path, payload)
             if is_main_process(dist_ctx):
-                print(f"checkpoint_saved={checkpoint_dir / tag}")
+                print(f"checkpoint_enqueued={save_path}")
 
-    if save_final:
-        final_step = max(last_step, 1)
-        ds_engine.save_checkpoint(
-            str(checkpoint_dir), tag="latest", client_state={"global_step": final_step}
-        )
-        if is_main_process(dist_ctx):
-            print(f"checkpoint_saved={checkpoint_dir / 'latest'}")
+        writer.flush()
+    finally:
+        writer.close()
 
 
 def run_train(
@@ -708,6 +1160,28 @@ def run_train(
         _load_def_train_functions(def_train_module)
     )
     config = load_config_fn(config_path)
+
+    env_rank = int(os.getenv("RANK", "0"))
+    env_world_size = int(os.getenv("WORLD_SIZE", "1"))
+    load_ckpt_path, load_ckpt_mode, load_ckpt_strict = _resolve_load_ckpt_settings(
+        config, config_path
+    )
+    load_ckpt_payload: dict[str, Any] | None = None
+    if load_ckpt_path is not None:
+        load_ckpt_payload, resolved_ckpt_path = _load_checkpoint_payload(
+            load_ckpt_path,
+            rank=env_rank,
+            world_size=env_world_size,
+        )
+        if env_rank == 0:
+            print(f"[ckpt] load checkpoint: {resolved_ckpt_path}", flush=True)
+        _apply_or_report_resume_config(
+            config,
+            load_ckpt_payload,
+            load_ckpt_mode,
+            emit_logs=(env_rank == 0),
+        )
+
     if debug_override:
         config.setdefault("runtime", {})["debug"] = True
     if attn_implementation_override is not None:
@@ -762,6 +1236,9 @@ def run_train(
                 save_final=save_final,
                 step_fn=step_fn,
                 evaluate_fn=evaluate_fn,
+                load_ckpt_payload=load_ckpt_payload,
+                load_ckpt_mode=load_ckpt_mode,
+                load_ckpt_strict=load_ckpt_strict,
             )
         else:
             _run_pytorch_backend(
@@ -774,6 +1251,9 @@ def run_train(
                 total_steps=total_steps,
                 save_final=save_final,
                 step_fn=step_fn,
+                load_ckpt_payload=load_ckpt_payload,
+                load_ckpt_mode=load_ckpt_mode,
+                load_ckpt_strict=load_ckpt_strict,
             )
 
         if val_iterable is not None:

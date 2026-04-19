@@ -158,6 +158,22 @@
         "checkpoint_dir": {
           "type": "string"
         },
+        "load_ckpt_path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "load_ckpt_mode": {
+          "type": "string",
+          "enum": [
+            "full",
+            "weights_only"
+          ]
+        },
+        "load_ckpt_strict": {
+          "type": "boolean"
+        },
         "log_every_steps": {
           "type": "integer",
           "minimum": 1

@@ -78,6 +78,9 @@ train:
   grad_clip_norm: 1.0
   checkpoint_every_steps: 500
   checkpoint_dir: checkpoints
+  load_ckpt_path: null           # 可选；支持相对 config 的路径
+  load_ckpt_mode: full           # full | weights_only
+  load_ckpt_strict: true         # 传给 model.load_state_dict(strict=...)
   log_every_steps: 10
 ```
 
@@ -86,6 +89,10 @@ train:
   - `epoch`：按 `epochs * len(dataloader)` 计算总步数，忽略 `max_steps`。
 - `max_steps <= 0` 且 `control_mode=step` 时，训练入口会使用内部默认上限。
 - `checkpoint_every_steps <= 0` 表示不按间隔保存。
+- checkpoint 文件统一为 `.pt`：间隔保存 `step_<global_step>[.rank_<rank>].pt`，结束保存 `latest[.rank_<rank>].pt`。
+- `load_ckpt_mode=full`：恢复 model + optimizer + scheduler + step，并用 checkpoint 内 `resume_config` 覆盖相关配置。
+- `load_ckpt_mode=weights_only`：仅恢复 model；其余配置仅打印差异不覆盖。
+- `full` 覆盖键：`optimizer.*`、`scheduler.*`、`train.gradient_accumulation_steps`、`train.mixed_precision`、`runtime.training_backend`。
 
 ## `rlaif`（可选）
 

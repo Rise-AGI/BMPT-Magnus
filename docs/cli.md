@@ -66,6 +66,16 @@ bmpt-train --nnodes 2 --node-rank 0 --nproc-per-node 8 --master-addr <master_ip>
 
 并按“相对 `--config` 文件目录”解析相对路径。
 
+### Checkpoint 恢复（配置驱动）
+
+`bmpt-train` 不提供额外恢复 CLI 参数，恢复行为完全由 `train` 配置控制：
+
+- `train.load_ckpt_path`
+- `train.load_ckpt_mode`（`full` / `weights_only`）
+- `train.load_ckpt_strict`
+
+其中 `load_ckpt_path` 相对路径按 `--config` 文件目录解析。
+
 ### `attn_implementation`
 
 优先级从高到低：

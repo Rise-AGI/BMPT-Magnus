@@ -38,6 +38,9 @@ train:
   grad_clip_norm: 1.0
   checkpoint_every_steps: 500
   checkpoint_dir: checkpoints
+  load_ckpt_path: null
+  load_ckpt_mode: full
+  load_ckpt_strict: true
   log_every_steps: 10
 
 runtime:

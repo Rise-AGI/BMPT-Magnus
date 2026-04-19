@@ -69,6 +69,23 @@ DeepSpeed 配置路径只来自：
 
 不使用 `--deepspeed-config` 这类 CLI 选项。
 
+### Checkpoint 恢复来源
+
+Checkpoint 恢复同样只来自训练配置（非 CLI）：
+
+- `train.load_ckpt_path`
+- `train.load_ckpt_mode`（`full` / `weights_only`）
+- `train.load_ckpt_strict`
+
+最小示例：
+
+```yaml
+train:
+  load_ckpt_path: checkpoints/latest.pt
+  load_ckpt_mode: full
+  load_ckpt_strict: true
+```
+
 ### Attention 配置来源
 
 优先级从高到低：
