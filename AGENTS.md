@@ -33,3 +33,7 @@
   - `docs/cli.md`
   - `docs/interface.md`
   - `agents/` 下对应文档
+
+## 6. 提交规范
+
+- `git commit` 提交消息统一使用中文。
