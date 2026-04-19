@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import queue
 import threading
+import time
 from pathlib import Path
 from typing import Any, cast
 
@@ -51,7 +52,10 @@ class AsyncCheckpointWriter:
                     return
                 record = cast(tuple[Path, dict[str, Any]], item)
                 save_path, payload = record
+                start_time = time.perf_counter()
                 self._atomic_save(save_path, payload)
+                elapsed = time.perf_counter() - start_time
+                print(f"[ckpt] saved {save_path} in {elapsed:.2f}s", flush=True)
             except Exception as exc:
                 self._set_error(exc)
             finally:

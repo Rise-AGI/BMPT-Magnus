@@ -1356,7 +1356,62 @@ def _launch_distributed(args: argparse.Namespace) -> None:
         "bmpt.cli.train",
     ]
     command.extend(_build_worker_args(args))
-    subprocess.run(command, check=True)
+    try:
+        subprocess.run(command, check=True)
+    except subprocess.CalledProcessError as exc:
+        _print_distributed_failure_hint(args, command, exc)
+        raise
+
+
+def _print_distributed_failure_hint(
+    args: argparse.Namespace,
+    command: list[str],
+    exc: subprocess.CalledProcessError,
+) -> None:
+    print("[bmpt] Distributed launch failed.", file=sys.stderr, flush=True)
+    print(f"[bmpt] returncode={exc.returncode}", file=sys.stderr, flush=True)
+    print(
+        f"[bmpt] command={' '.join(command)}",
+        file=sys.stderr,
+        flush=True,
+    )
+    print("[bmpt] Recommended checks:", file=sys.stderr, flush=True)
+    print(
+        "[bmpt] 1) Check host/container OOM kill logs: "
+        "dmesg -T | egrep -i 'oom|killed process'",
+        file=sys.stderr,
+        flush=True,
+    )
+    print(
+        "[bmpt] 2) Reduce worker count and retry: --nproc-per-node 1",
+        file=sys.stderr,
+        flush=True,
+    )
+    print(
+        "[bmpt] 3) Reduce memory pressure in config: lower "
+        "train_micro_batch_size_per_gpu or increase grad accumulation",
+        file=sys.stderr,
+        flush=True,
+    )
+    print(
+        "[bmpt] 4) If using FlashAttention, retry with: --attn-implementation sdpa",
+        file=sys.stderr,
+        flush=True,
+    )
+    print(
+        "[bmpt] 5) Resume from latest checkpoint if available.",
+        file=sys.stderr,
+        flush=True,
+    )
+
+    attn = args.attn_implementation
+    if attn in (None, "auto", "flash_attention_2"):
+        print(
+            "[bmpt] Hint: current attention mode may increase memory pressure "
+            "during distributed runs.",
+            file=sys.stderr,
+            flush=True,
+        )
 
 
 def _run_train_entry(args: argparse.Namespace) -> None:
