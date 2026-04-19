@@ -75,6 +75,7 @@ bmpt-train --nnodes 2 --node-rank 0 --nproc-per-node 8 --master-addr <master_ip>
 - `train.load_ckpt_strict`
 
 其中 `load_ckpt_path` 相对路径按 `--config` 文件目录解析。
+多卡恢复时，若基础文件不存在，会按当前 rank 自动尝试 `*.rank_<rank>.pt`。
 
 ### `attn_implementation`
 

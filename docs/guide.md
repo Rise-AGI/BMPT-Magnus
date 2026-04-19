@@ -116,6 +116,7 @@ bmpt-train --config src/bmpt/algorithms/config.yaml
 - `load_ckpt_mode=full`：恢复 model + optimizer + scheduler + step。
 - `load_ckpt_mode=weights_only`：仅恢复 model（常用于迁移初始化）。
 - `load_ckpt_path` 相对路径按 `--config` 文件目录解析。
+- 多卡场景下，若 `load_ckpt_path` 对应的基础文件不存在，会自动按 rank 尝试 `*.rank_<rank>.pt`。
 
 ## 9. 示例脚本
 

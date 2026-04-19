@@ -92,6 +92,7 @@ train:
 - checkpoint 文件统一为 `.pt`：间隔保存 `step_<global_step>[.rank_<rank>].pt`，结束保存 `latest[.rank_<rank>].pt`。
 - `load_ckpt_mode=full`：恢复 model + optimizer + scheduler + step，并用 checkpoint 内 `resume_config` 覆盖相关配置。
 - `load_ckpt_mode=weights_only`：仅恢复 model；其余配置仅打印差异不覆盖。
+- 多卡恢复时，若 `load_ckpt_path` 指向的基础文件（如 `step_2000.pt`）不存在，会自动尝试同目录下的 `step_2000.rank_<rank>.pt`。
 - `load_ckpt_strict`：传给 `model.load_state_dict(strict=...)`。
   - `true`（默认）：checkpoint 与当前模型参数名/shape 需严格匹配，缺键/多键/shape 不一致会直接报错并终止。
   - `false`：允许非严格匹配（常用于只加载部分权重或结构轻微变动时），但不匹配参数不会被恢复。
