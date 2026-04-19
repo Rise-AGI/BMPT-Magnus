@@ -668,6 +668,8 @@ def _restore_deepspeed_state(
     ds_engine: Any,
     mode: str,
     strict: bool,
+    rank: int = 0,
+    world_size: int = 1,
 ) -> int:
     model_states = payload.get("models")
     if not isinstance(model_states, dict):
@@ -685,7 +687,12 @@ def _restore_deepspeed_state(
         optimizer_state is not None
         and getattr(ds_engine, "optimizer", None) is not None
     ):
-        ds_engine.optimizer.load_state_dict(optimizer_state)
+        if world_size > 1:
+            state_dict_list: list[dict[str, Any] | None] = [None] * world_size
+            state_dict_list[rank] = optimizer_state
+            ds_engine.optimizer.load_state_dict(state_dict_list)
+        else:
+            ds_engine.optimizer.load_state_dict(optimizer_state)
 
     scheduler_state = payload.get("scheduler")
     if (
@@ -727,6 +734,16 @@ def _load_deepspeed_config(
     ds_path = _resolve_deepspeed_config_path(config, config_path)
     with Path(ds_path).open("r", encoding="utf-8") as handle:
         ds_config = json.load(handle)
+
+    zero_cfg = ds_config.get("zero_optimization", {})
+    if zero_cfg.get("elastic_checkpoint", False) is True:
+        raise ValueError(
+            "BMPT does not support elastic_checkpoint=True in DeepSpeed config. "
+            "Please set elastic_checkpoint=False or remove it from your config."
+        )
+    if "zero_optimization" not in ds_config:
+        ds_config["zero_optimization"] = {}
+    ds_config["zero_optimization"]["elastic_checkpoint"] = False
 
     train_cfg = config.get("train", {})
     optimizer_cfg = config.get("optimizer", {})
@@ -1024,6 +1041,8 @@ def _run_deepspeed_backend(
             ds_engine=ds_engine,
             mode=load_ckpt_mode,
             strict=load_ckpt_strict,
+            rank=dist_ctx.rank,
+            world_size=dist_ctx.world_size,
         )
         if _is_rank0():
             print(
