@@ -26,9 +26,9 @@ train:
   max_seq_len: 512
   mixed_precision: bf16
   grad_clip_norm: 1.0
-  checkpoint_every_steps: 400
+  checkpoint_every_steps: 300
   checkpoint_dir: /data/magnus/rl-group/checkpoints/qwen25_sft_fullparam_torch
-  load_ckpt_path: null
+  load_ckpt_path: /data/magnus/rl-group/checkpoints/qwen25_sft_fullparam_torch/step_400.pt
   load_ckpt_mode: full
   load_ckpt_strict: true
   log_every_steps: 10
