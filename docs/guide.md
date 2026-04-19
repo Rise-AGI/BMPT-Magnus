@@ -94,7 +94,30 @@ bmpt-train --config src/bmpt/algorithms/config.yaml --attn-implementation sdpa
 - `auto` 会优先尝试 `flash_attention_2`。
 - 若当前环境不支持 FlashAttention，程序会自动回退并打印 warning。
 
-## 8. 示例脚本
+## 8. 断点继续训练
+
+恢复训练由配置驱动（不是 CLI 参数）：
+
+```yaml
+train:
+  load_ckpt_path: checkpoints/latest.pt
+  load_ckpt_mode: full
+  load_ckpt_strict: true
+```
+
+然后正常启动训练即可（按当前配置的 backend 继续）：
+
+```bash
+bmpt-train --config src/bmpt/algorithms/config.yaml
+```
+
+常用说明：
+
+- `load_ckpt_mode=full`：恢复 model + optimizer + scheduler + step。
+- `load_ckpt_mode=weights_only`：仅恢复 model（常用于迁移初始化）。
+- `load_ckpt_path` 相对路径按 `--config` 文件目录解析。
+
+## 9. 示例脚本
 
 - 引擎示例：`python example/example_engine_loop.py`
 - 算法 step 示例：`python example/example_weighted_step.py`
