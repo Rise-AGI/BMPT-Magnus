@@ -1,6 +1,6 @@
-# `step(models, input)` 接口约定
+# `step/evaluate(models, input)` 接口约定
 
-本文档定义算法层 `step` 的最小契约，供 AI Agent 编写/修改 `def_train.py` 时遵循。
+本文档定义算法层 `step/evaluate` 的最小契约，供 AI Agent 编写/修改 `def_train.py` 时遵循。
 
 ## 1. 函数签名
 
@@ -8,6 +8,9 @@
 
 ```python
 def step(models, input):
+    ...
+
+def evaluate(models, input):
     ...
 ```
 
@@ -38,7 +41,7 @@ def step(models, input):
 - `compose(...)` 返回 `input_ids/attention_mask/lengths`，不自动生成 `labels`。
 - 需要监督训练时，`step` 内应显式构造 `labels`，并将不参与监督的位置置为 `-100`。
 
-## 3. 返回字段（最小必需）
+## 3. `step` 返回字段（最小必需）
 
 `step` 必须返回 `dict`，且至少包含：
 
@@ -63,6 +66,7 @@ return {
 - 不在 `step` 内直接执行 `optimizer.step()`。
 - 不在 `step` 内直接处理 DDP/DeepSpeed 初始化。
 - 训练后端切换由 CLI + runtime 配置完成，`step` 只负责算法逻辑。
+- `evaluate` 负责评估阶段聚合与指标计算；框架不提供默认 eval 聚合。
 
 ## 5. 兼容建议
 

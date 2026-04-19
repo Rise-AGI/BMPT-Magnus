@@ -41,7 +41,7 @@ bmpt-train --config /path/to/config.yaml --def-train /path/to/def_train.py --bac
 
 预期信号：
 
-- 不出现 `load_config/build_models_from_config/step` 缺失错误
+- 不出现 `load_config/build_models_from_config/step/evaluate` 缺失错误
 
 ## 配方 4：单机分布式
 

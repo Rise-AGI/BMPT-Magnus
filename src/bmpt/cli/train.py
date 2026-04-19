@@ -134,11 +134,17 @@ def _arg_provided(raw_argv: list[str], flag: str) -> bool:
 
 
 def _find_workspace_candidates(workspace: Path, file_name: str) -> list[Path]:
-    candidates = [path.resolve() for path in workspace.rglob(file_name) if path.is_file()]
-    return sorted(candidates, key=lambda path: (len(path.relative_to(workspace).parts), str(path)))
+    candidates = [
+        path.resolve() for path in workspace.rglob(file_name) if path.is_file()
+    ]
+    return sorted(
+        candidates, key=lambda path: (len(path.relative_to(workspace).parts), str(path))
+    )
 
 
-def _select_workspace_candidate(label: str, workspace: Path, candidates: list[Path]) -> Path:
+def _select_workspace_candidate(
+    label: str, workspace: Path, candidates: list[Path]
+) -> Path:
     chosen = candidates[0]
     if len(candidates) > 1:
         print(
@@ -166,14 +172,23 @@ def _resolve_workspace_overrides(args: argparse.Namespace, raw_argv: list[str]) 
         config_candidates: list[Path] = []
         for name in ("config.json", "config.yaml", "config.yml"):
             config_candidates.extend(_find_workspace_candidates(workspace, name))
-        config_candidates = sorted(set(config_candidates), key=lambda path: (len(path.relative_to(workspace).parts), str(path)))
+        config_candidates = sorted(
+            set(config_candidates),
+            key=lambda path: (len(path.relative_to(workspace).parts), str(path)),
+        )
         if config_candidates:
-            args.config = str(_select_workspace_candidate("config", workspace, config_candidates))
+            args.config = str(
+                _select_workspace_candidate("config", workspace, config_candidates)
+            )
 
     if not def_train_is_manual:
         def_train_candidates = _find_workspace_candidates(workspace, "def_train.py")
         if def_train_candidates:
-            args.def_train = str(_select_workspace_candidate("def_train", workspace, def_train_candidates))
+            args.def_train = str(
+                _select_workspace_candidate(
+                    "def_train", workspace, def_train_candidates
+                )
+            )
 
 
 def _is_debug_enabled(config: dict[str, Any]) -> bool:
@@ -216,7 +231,11 @@ def _load_module_from_path(module_path: str | Path):
     return module
 
 
-def _load_def_train_functions(def_train_module: str) -> tuple[Callable[..., Any], Callable[..., Any], Callable[..., Any]]:
+def _load_def_train_functions(
+    def_train_module: str,
+) -> tuple[
+    Callable[..., Any], Callable[..., Any], Callable[..., Any], Callable[..., Any]
+]:
     module_path = Path(def_train_module)
     should_load_from_path = def_train_module.endswith(".py") or module_path.exists()
     if should_load_from_path:
@@ -226,14 +245,19 @@ def _load_def_train_functions(def_train_module: str) -> tuple[Callable[..., Any]
     load_config_fn = getattr(module, "load_config", None)
     build_models_from_config_fn = getattr(module, "build_models_from_config", None)
     step_fn = getattr(module, "step", None)
+    evaluate_fn = getattr(module, "evaluate", None)
 
     if not callable(load_config_fn):
         raise AttributeError(f"`{def_train_module}` must expose callable `load_config`")
     if not callable(build_models_from_config_fn):
-        raise AttributeError(f"`{def_train_module}` must expose callable `build_models_from_config`")
+        raise AttributeError(
+            f"`{def_train_module}` must expose callable `build_models_from_config`"
+        )
     if not callable(step_fn):
         raise AttributeError(f"`{def_train_module}` must expose callable `step`")
-    return load_config_fn, build_models_from_config_fn, step_fn
+    if not callable(evaluate_fn):
+        raise AttributeError(f"`{def_train_module}` must expose callable `evaluate`")
+    return load_config_fn, build_models_from_config_fn, step_fn, evaluate_fn
 
 
 def _resolve_total_steps(config: dict[str, Any], max_steps_override: int | None) -> int:
@@ -266,7 +290,9 @@ def _resolve_total_steps_by_mode(
     train_cfg = config.get("train", {})
     epochs = int(train_cfg.get("epochs", 1))
     if epochs <= 0:
-        raise ValueError("`train.epochs` must be > 0 when train.control_mode is `epoch`")
+        raise ValueError(
+            "`train.epochs` must be > 0 when train.control_mode is `epoch`"
+        )
     if not hasattr(data_iterable, "__len__"):
         raise ValueError("`train.control_mode=epoch` requires dataloader with __len__")
     return int(len(data_iterable)) * epochs
@@ -299,7 +325,9 @@ def _iter_training_batches(
             global_step += 1
 
 
-def _resolve_training_backend(config: dict[str, Any], backend_override: str | None) -> str:
+def _resolve_training_backend(
+    config: dict[str, Any], backend_override: str | None
+) -> str:
     if backend_override is not None:
         return backend_override
     return str(config.get("runtime", {}).get("training_backend", "pytorch"))
@@ -322,14 +350,18 @@ def _unwrap_model(model: torch.nn.Module) -> torch.nn.Module:
 def _save_pytorch_checkpoint(
     models: dict[str, torch.nn.Module],
     optimizer: torch.optim.Optimizer,
-    scheduler: torch.optim.lr_scheduler._LRScheduler | torch.optim.lr_scheduler.LambdaLR | None,
+    scheduler: torch.optim.lr_scheduler._LRScheduler
+    | torch.optim.lr_scheduler.LambdaLR
+    | None,
     checkpoint_dir: Path,
     step_id: int,
 ) -> Path:
     save_path = checkpoint_dir / f"step_{step_id}.pt"
     state = {
         "global_step": step_id,
-        "models": {name: _unwrap_model(model).state_dict() for name, model in models.items()},
+        "models": {
+            name: _unwrap_model(model).state_dict() for name, model in models.items()
+        },
         "optimizer": optimizer.state_dict(),
         "scheduler": scheduler.state_dict() if scheduler is not None else None,
     }
@@ -337,11 +369,15 @@ def _save_pytorch_checkpoint(
     return save_path
 
 
-def _resolve_deepspeed_config_path(config: dict[str, Any], config_path: str | Path) -> str:
+def _resolve_deepspeed_config_path(
+    config: dict[str, Any], config_path: str | Path
+) -> str:
     runtime_cfg = config.get("runtime", {})
     ds_path = runtime_cfg.get("deepspeed_config_path")
     if ds_path is None:
-        raise ValueError("`runtime.deepspeed_config_path` is required for deepspeed backend")
+        raise ValueError(
+            "`runtime.deepspeed_config_path` is required for deepspeed backend"
+        )
 
     ds_path_obj = Path(ds_path)
     if not ds_path_obj.is_absolute():
@@ -352,7 +388,9 @@ def _resolve_deepspeed_config_path(config: dict[str, Any], config_path: str | Pa
     return str(resolved)
 
 
-def _load_deepspeed_config(config: dict[str, Any], config_path: str | Path, total_steps: int) -> dict[str, Any]:
+def _load_deepspeed_config(
+    config: dict[str, Any], config_path: str | Path, total_steps: int
+) -> dict[str, Any]:
     ds_path = _resolve_deepspeed_config_path(config, config_path)
     with Path(ds_path).open("r", encoding="utf-8") as handle:
         ds_config = json.load(handle)
@@ -361,13 +399,19 @@ def _load_deepspeed_config(config: dict[str, Any], config_path: str | Path, tota
     optimizer_cfg = config.get("optimizer", {})
     scheduler_cfg = config.get("scheduler", {})
 
-    ds_config["train_micro_batch_size_per_gpu"] = int(train_cfg.get("per_device_batch_size", 1))
-    ds_config["gradient_accumulation_steps"] = int(train_cfg.get("gradient_accumulation_steps", 1))
+    ds_config["train_micro_batch_size_per_gpu"] = int(
+        train_cfg.get("per_device_batch_size", 1)
+    )
+    ds_config["gradient_accumulation_steps"] = int(
+        train_cfg.get("gradient_accumulation_steps", 1)
+    )
     ds_config["gradient_clipping"] = float(train_cfg.get("grad_clip_norm", 1.0))
 
     optimizer_type = str(optimizer_cfg.get("type", "adamw")).lower()
     if optimizer_type != "adamw":
-        raise ValueError(f"Unsupported optimizer.type for deepspeed backend: {optimizer_type}")
+        raise ValueError(
+            f"Unsupported optimizer.type for deepspeed backend: {optimizer_type}"
+        )
     ds_config["optimizer"] = {
         "type": "AdamW",
         "params": {
@@ -389,7 +433,9 @@ def _load_deepspeed_config(config: dict[str, Any], config_path: str | Path, tota
         ds_config["bf16"] = {"enabled": False}
         ds_config["fp16"] = {"enabled": False}
     else:
-        raise ValueError(f"Unsupported train.mixed_precision for deepspeed backend: {mixed_precision}")
+        raise ValueError(
+            f"Unsupported train.mixed_precision for deepspeed backend: {mixed_precision}"
+        )
 
     scheduler_type = str(scheduler_cfg.get("type", "none")).lower()
     if scheduler_type == "cosine":
@@ -410,7 +456,9 @@ def _load_deepspeed_config(config: dict[str, Any], config_path: str | Path, tota
     elif scheduler_type == "none":
         ds_config.pop("scheduler", None)
     else:
-        raise ValueError(f"Unsupported scheduler.type for deepspeed backend: {scheduler_type}")
+        raise ValueError(
+            f"Unsupported scheduler.type for deepspeed backend: {scheduler_type}"
+        )
 
     return ds_config
 
@@ -422,40 +470,27 @@ def _run_validation(
     config_path: str | Path,
     dist_ctx: Any,
     composers: dict[str, Any],
-    step_fn: Callable[..., Any],
+    evaluate_fn: Callable[..., Any],
     phase: str,
 ) -> None:
     _debug_print(config, f"DEBUG: _run_validation enter, phase={phase}")
 
-    static_step_input = {
+    payload = {
         "config_path": str(config_path),
         "_cached_config": config,
         "_merged_config": config,
         "composers": composers,
+        "val_iterable": val_iterable,
+        "dist_ctx": dist_ctx,
+        "phase": phase,
     }
-
-    total_loss = 0.0
-    total_samples = 0
-    metrics_sum: dict[str, float] = {}
-
-    with torch.no_grad():
-        for batch in val_iterable:
-            device_batch = move_to_device(batch, dist_ctx.device)
-            payload = {"batch": device_batch, "global_step": 0}
-            payload.update(static_step_input)
-            output = step_fn(models, payload)
-
-            loss = float(output.get("loss", 0.0))
-            total_loss += loss
-            total_samples += 1
-
-            for key, value in output.get("metrics", {}).items():
-                metrics_sum[key] = metrics_sum.get(key, 0.0) + float(value)
+    output = evaluate_fn(models, payload)
+    metrics = output.get("metrics", {}) if isinstance(output, dict) else {}
+    if not isinstance(metrics, dict):
+        raise TypeError("`evaluate` must return dict with `metrics: dict[str, float]`")
 
     if is_main_process(dist_ctx):
-        avg_loss = total_loss / max(total_samples, 1)
-        avg_metrics = {k: v / total_samples for k, v in metrics_sum.items()}
-        print(f"[{phase}] val_loss={avg_loss:.4f} val_metrics={avg_metrics}")
+        print(f"[{phase}] eval_metrics={metrics}")
 
 
 def _run_pytorch_backend(
@@ -519,7 +554,11 @@ def _run_pytorch_backend(
             if is_main_process(dist_ctx):
                 metrics_emitter.emit(step_id=idx + 1, metrics=reduced)
 
-        if checkpoint_every > 0 and (idx + 1) % checkpoint_every == 0 and is_main_process(dist_ctx):
+        if (
+            checkpoint_every > 0
+            and (idx + 1) % checkpoint_every == 0
+            and is_main_process(dist_ctx)
+        ):
             save_path = _save_pytorch_checkpoint(
                 models=models,
                 optimizer=optimizer,
@@ -534,7 +573,10 @@ def _run_pytorch_backend(
         save_path = checkpoint_dir / "latest.pt"
         state = {
             "global_step": final_step,
-            "models": {name: _unwrap_model(model).state_dict() for name, model in models.items()},
+            "models": {
+                name: _unwrap_model(model).state_dict()
+                for name, model in models.items()
+            },
             "optimizer": optimizer.state_dict(),
             "scheduler": scheduler.state_dict() if scheduler is not None else None,
         }
@@ -553,6 +595,7 @@ def _run_deepspeed_backend(
     total_steps: int,
     save_final: bool,
     step_fn: Callable[..., Any],
+    evaluate_fn: Callable[..., Any],
 ) -> None:
     try:
         deepspeed = import_module("deepspeed")
@@ -567,7 +610,9 @@ def _run_deepspeed_backend(
     ds_config = _load_deepspeed_config(config, config_path, total_steps=total_steps)
 
     policy_model = models["policy"].to(dist_ctx.device)
-    trainable_parameters = [param for param in policy_model.parameters() if param.requires_grad]
+    trainable_parameters = [
+        param for param in policy_model.parameters() if param.requires_grad
+    ]
     ds_engine, _, _, _ = deepspeed.initialize(
         model=policy_model,
         model_parameters=trainable_parameters,
@@ -599,7 +644,7 @@ def _run_deepspeed_backend(
             config_path=config_path,
             dist_ctx=dist_ctx,
             composers=composers,
-            step_fn=step_fn,
+            evaluate_fn=evaluate_fn,
             phase="before_train",
         )
 
@@ -633,13 +678,17 @@ def _run_deepspeed_backend(
 
         if checkpoint_every > 0 and (idx + 1) % checkpoint_every == 0:
             tag = f"step_{idx + 1}"
-            ds_engine.save_checkpoint(str(checkpoint_dir), tag=tag, client_state={"global_step": idx + 1})
+            ds_engine.save_checkpoint(
+                str(checkpoint_dir), tag=tag, client_state={"global_step": idx + 1}
+            )
             if is_main_process(dist_ctx):
                 print(f"checkpoint_saved={checkpoint_dir / tag}")
 
     if save_final:
         final_step = max(last_step, 1)
-        ds_engine.save_checkpoint(str(checkpoint_dir), tag="latest", client_state={"global_step": final_step})
+        ds_engine.save_checkpoint(
+            str(checkpoint_dir), tag="latest", client_state={"global_step": final_step}
+        )
         if is_main_process(dist_ctx):
             print(f"checkpoint_saved={checkpoint_dir / 'latest'}")
 
@@ -655,12 +704,16 @@ def run_train(
     save_final: bool = False,
     debug_override: bool = False,
 ) -> None:
-    load_config_fn, build_models_from_config_fn, step_fn = _load_def_train_functions(def_train_module)
+    load_config_fn, build_models_from_config_fn, step_fn, evaluate_fn = (
+        _load_def_train_functions(def_train_module)
+    )
     config = load_config_fn(config_path)
     if debug_override:
         config.setdefault("runtime", {})["debug"] = True
     if attn_implementation_override is not None:
-        config.setdefault("runtime", {})["attn_implementation"] = attn_implementation_override
+        config.setdefault("runtime", {})["attn_implementation"] = (
+            attn_implementation_override
+        )
     composers = build_composers_from_config(config)
     if len(composers) > 0 and int(os.getenv("RANK", "0")) == 0:
         print(f"[bmpt] loaded_composers={list(composers.keys())}", flush=True)
@@ -676,7 +729,9 @@ def run_train(
         if training_backend == "pytorch":
             models = wrap_models_for_ddp(models, dist_ctx)
 
-        val_iterable = dataloader_fn(config, dist_ctx, path_key="val_path", shuffle=False)
+        val_iterable = dataloader_fn(
+            config, dist_ctx, path_key="val_path", shuffle=False
+        )
         if val_iterable is not None and training_backend != "deepspeed":
             _run_validation(
                 models=models,
@@ -685,12 +740,14 @@ def run_train(
                 config_path=config_path,
                 dist_ctx=dist_ctx,
                 composers=composers,
-                step_fn=step_fn,
+                evaluate_fn=evaluate_fn,
                 phase="before_train",
             )
 
         data_iterable = dataloader_fn(config, dist_ctx)
-        total_steps = _resolve_total_steps_by_mode(config, max_steps_override, data_iterable)
+        total_steps = _resolve_total_steps_by_mode(
+            config, max_steps_override, data_iterable
+        )
 
         if training_backend == "deepspeed":
             _run_deepspeed_backend(
@@ -704,6 +761,7 @@ def run_train(
                 total_steps=total_steps,
                 save_final=save_final,
                 step_fn=step_fn,
+                evaluate_fn=evaluate_fn,
             )
         else:
             _run_pytorch_backend(
@@ -719,7 +777,9 @@ def run_train(
             )
 
         if val_iterable is not None:
-            val_iterable = dataloader_fn(config, dist_ctx, path_key="val_path", shuffle=False)
+            val_iterable = dataloader_fn(
+                config, dist_ctx, path_key="val_path", shuffle=False
+            )
             _run_validation(
                 models=models,
                 val_iterable=val_iterable,
@@ -727,7 +787,7 @@ def run_train(
                 config_path=config_path,
                 dist_ctx=dist_ctx,
                 composers=composers,
-                step_fn=step_fn,
+                evaluate_fn=evaluate_fn,
                 phase="after_train",
             )
     finally:
