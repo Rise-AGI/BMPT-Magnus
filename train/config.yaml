@@ -23,14 +23,16 @@ algorithm:
     verifier_threshold: 0.5
 
 models:
+  policy:
+    path: /data/zhaoweiran/models/Qwen/Qwen2.5-7B
   planner:
     path: /data/zhaoweiran/models/Qwen/Qwen2.5-7B
     trainable: true
   builder:
-    path: /data/zhaoweiran/models/Qwen/Qwen2.5-7B 
+    path: /data/zhaoweiran/models/Qwen/Qwen2.5-7B
     trainable: true
   verifier:
-    path: /data/zhaoweiran/models/Qwen/Qwen2.5-7B 
+    path: /data/zhaoweiran/models/Qwen/Qwen2.5-7B
     trainable: false
 
 optimizer:
