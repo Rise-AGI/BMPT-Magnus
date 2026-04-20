@@ -2,32 +2,32 @@ seed: 42
 
 models:
   policy:
-    path: /data/zhaoweiran/models/Qwen/Qwen2.5-7B
+    path: Qwen/Qwen2.5-7B
     trainable: true
 
 optimizer:
   type: adamw
-  lr: 1.0e-5
-  weight_decay: 0.1
+  lr: 5.0e-6
+  weight_decay: 0.01
   betas: [0.9, 0.95]
   eps: 1.0e-8
 
 scheduler:
   type: cosine
-  warmup_steps: 200
+  warmup_steps: 100
   min_lr_ratio: 0.1
 
 train:
   control_mode: epoch
-  epochs: 4
+  epochs: 3
   max_steps: -1
   per_device_batch_size: 1
-  gradient_accumulation_steps: 8
+  gradient_accumulation_steps: 16
   mixed_precision: bf16
   grad_clip_norm: 1.0
-  checkpoint_every_steps: 400
-  checkpoint_dir: /data/magnus/rl-group/checkpoints/qwen25_sft_fullparam_torch
-  load_ckpt_path: /data/magnus/rl-group/checkpoints/qwen25_sft_fullparam_torch/step_800.pt
+  checkpoint_every_steps: 500
+  checkpoint_dir: checkpoints/qwen25-7b-sft-full
+  load_ckpt_path: null
   load_ckpt_mode: full
   load_ckpt_strict: true
   log_every_steps: 10
@@ -36,29 +36,26 @@ runtime:
   backend: accelerate
   training_backend: deepspeed
   distributed_backend: nccl
-  attn_implementation: auto
+  attn_implementation: flash_attention_2
   metrics:
     enabled: true
     window_size: 20
     global_throughput: true
-    output:
-      - stdout
-      - file:./.magnus_result
+    output: []
   deepspeed_config_path: deepspeed_zero2.json
-  debug: false
   compile: false
   gradient_checkpointing: true
   flash_attention: true
 
 data:
   sources:
-    - path: data/processed/train.jsonl
+    - path: data/train.jsonl
       required_keys: [prompt, response]
       tokenize_keys: [prompt, response]
       name: train
-    - path: data/processed/val.jsonl
+    - path: data/val.jsonl
       required_keys: [prompt, response]
       tokenize_keys: [prompt, response]
       name: val
-  max_seq_len: 512
+  max_seq_len: 4096
   cache_dir: null
