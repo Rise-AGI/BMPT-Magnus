@@ -56,7 +56,7 @@ train:
   grad_clip_norm: 1.0
   log_every_steps: 10
   checkpoint_every_steps: 500
-  checkpoint_dir: /data/rl-group/rl-test-2/
+  checkpoint_dir: /data/magnus/rl-group/rl-test-2/
 
 runtime:
   training_backend: deepspeed
