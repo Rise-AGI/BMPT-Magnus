@@ -9,7 +9,7 @@ from typing import Any
 import torch
 from torch import nn
 
-from bmpt.util import Composer, build_composers_from_config
+from bmpt.util import Composer
 
 try:
     import yaml
@@ -241,25 +241,12 @@ def build_models_from_config(config: dict[str, Any], loader_fn: Any = None) -> d
     if not builder_trainable:
         builder.requires_grad_(False)
 
-    loaded_composers = build_composers_from_config(config)
-    planner_composer = loaded_composers.get("planner_context")
-    builder_composer = loaded_composers.get("builder_context")
-    verifier_composer = loaded_composers.get("verifier_judge")
-    if planner_composer is None or builder_composer is None or verifier_composer is None:
-        raise ValueError(
-            "请在 config.yaml 的 prompting.composers 中定义 planner_context、builder_context 与 verifier_judge。"
-        )
-
     return {
         "planner": planner,
         "builder": builder,
         "verifier": verifier,
         "planner_ref": planner_ref,
         "builder_ref": builder_ref,
-        "tokenizer": tokenizer,
-        "planner_composer": planner_composer,
-        "builder_composer": builder_composer,
-        "verifier_composer": verifier_composer,
     }
 
 
@@ -471,14 +458,16 @@ def step(models: dict[str, Any], input: dict[str, Any]) -> dict[str, Any]:
     verifier: QwenProcessVerifier = models["verifier"]
     planner_ref: nn.Module = models["planner_ref"]
     builder_ref: nn.Module = models["builder_ref"]
-    tokenizer = models["tokenizer"]
+    tokenizer = input.get("tokenizer")
+    if tokenizer is None:
+        raise ValueError("tokenizer is required in input for step function")
 
     composer_map = input.get("composers") or {}
-    planner_composer = composer_map.get("planner_context", models.get("planner_composer"))
-    builder_composer = composer_map.get("builder_context", models.get("builder_composer"))
-    verifier_composer = composer_map.get("verifier_judge", models.get("verifier_composer"))
+    planner_composer = composer_map.get("planner_context")
+    builder_composer = composer_map.get("builder_context")
+    verifier_composer = composer_map.get("verifier_judge")
     if planner_composer is None or builder_composer is None or verifier_composer is None:
-        raise ValueError("planner_context, builder_context and verifier_judge composers are required.")
+        raise ValueError("planner_context, builder_context and verifier_judge composers are required in input['composers'].")
 
     device = next(planner.parameters()).device
     verifier_device = next(verifier.model.parameters()).device

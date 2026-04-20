@@ -854,6 +854,7 @@ def _run_pytorch_backend(
     load_ckpt_payload: dict[str, Any] | None,
     load_ckpt_mode: str,
     load_ckpt_strict: bool,
+    tokenizer: Any | None = None,
 ) -> None:
     train_cfg = config.get("train", {})
     metrics_cfg = config.get("runtime", {}).get("metrics", {})
@@ -906,6 +907,7 @@ def _run_pytorch_backend(
         "_merged_config": config,
         "composers": composers,
         "_debug": _is_debug_enabled(config),
+        "tokenizer": tokenizer,
     }
     try:
         for idx, batch in _iter_training_batches(
@@ -1007,6 +1009,7 @@ def _run_deepspeed_backend(
     load_ckpt_payload: dict[str, Any] | None,
     load_ckpt_mode: str,
     load_ckpt_strict: bool,
+    tokenizer: Any | None = None,
 ) -> None:
     try:
         deepspeed = import_module("deepspeed")
@@ -1041,7 +1044,8 @@ def _run_deepspeed_backend(
     for name, model in models.items():
         if name == target_model_name:
             continue
-        models[name] = model.to(dist_ctx.device)
+        if isinstance(model, torch.nn.Module):
+            models[name] = model.to(dist_ctx.device)
 
     log_every = int(train_cfg.get("log_every_steps", 10))
     checkpoint_every, checkpoint_dir = _checkpoint_settings(config)
@@ -1071,6 +1075,7 @@ def _run_deepspeed_backend(
         "_merged_config": config,
         "composers": composers,
         "_debug": _is_debug_enabled(config),
+        "tokenizer": tokenizer,
     }
 
     if before_train_val_iterable is not None:
@@ -1284,6 +1289,7 @@ def run_train(
                 load_ckpt_payload=load_ckpt_payload,
                 load_ckpt_mode=load_ckpt_mode,
                 load_ckpt_strict=load_ckpt_strict,
+                tokenizer=tokenizer,
             )
         else:
             _run_pytorch_backend(
@@ -1299,6 +1305,7 @@ def run_train(
                 load_ckpt_payload=load_ckpt_payload,
                 load_ckpt_mode=load_ckpt_mode,
                 load_ckpt_strict=load_ckpt_strict,
+                tokenizer=tokenizer,
             )
 
         if val_records is not None:
