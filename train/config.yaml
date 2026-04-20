@@ -105,8 +105,5 @@ data:
   val_path: null
   return_fields:
     - prompt
-    - response
   tokenize_fields:
     - prompt
-  prompt_key: prompt
-  response_key: response
