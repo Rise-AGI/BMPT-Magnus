@@ -42,7 +42,7 @@ optimizer:
 
 scheduler:
   type: cosine
-  warmup_steps: 200
+  warmup_steps: 100
   min_lr_ratio: 0.1
 
 train:
