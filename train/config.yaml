@@ -1,41 +1,13 @@
 seed: 42
 
-algorithm:
-  name: pbv_stage1
-  step: pbv_stage1
-  max_prompt_tokens: 384
-  training_schedule:
-    planner_steps: 1
-    builder_steps: 2
-  planner:
-    max_plan_tokens: 160
-    max_plan_steps: 12
-    step_token_budget: 80
-    gamma: 0.95
-    temperature: 0.8
-    reward_mix_final: 0.0
-  builder:
-    k_samples: 8
-    step_max_tokens: 96
-    temperature: 0.95
-    kl_beta: 0.02
-    pass_select_tau: 0.7
-    verifier_threshold: 0.5
-
 models:
-  planner:
+  policy:
     path: /data/zhaoweiran/models/Qwen/Qwen2.5-7B
     trainable: true
-  builder:
-    path: /data/zhaoweiran/models/Qwen/Qwen2.5-7B 
-    trainable: true
-  verifier:
-    path: /data/zhaoweiran/models/Qwen/Qwen2.5-7B 
-    trainable: false
 
 optimizer:
   type: adamw
-  lr: 2.0e-5
+  lr: 5.0e-6
   weight_decay: 0.01
   betas: [0.9, 0.95]
   eps: 1.0e-8
@@ -46,64 +18,44 @@ scheduler:
   min_lr_ratio: 0.1
 
 train:
-  control_mode: step
-  max_steps: 6000
-  per_device_batch_size: 2
-  gradient_accumulation_steps: 8
+  control_mode: epoch
+  epochs: 3
+  max_steps: -1
+  per_device_batch_size: 1
+  gradient_accumulation_steps: 16
   mixed_precision: bf16
   grad_clip_norm: 1.0
-  log_every_steps: 10
   checkpoint_every_steps: 500
-  checkpoint_dir: ./checkpoints/pbv-stg1
+  checkpoint_dir: /data/magnus/rl-group/test001/
+  load_ckpt_path: null
+  load_ckpt_mode: full
+  load_ckpt_strict: true
+  log_every_steps: 10
 
 runtime:
+  backend: accelerate
   training_backend: deepspeed
-  deepspeed_config_path: deepspeed.zero2.json
-  attn_implementation: auto
-  gradient_checkpointing: true
+  distributed_backend: nccl
+  attn_implementation: flash_attention_2
   metrics:
     enabled: true
-    window_size: 50
+    window_size: 20
     global_throughput: true
-    output: [stdout]
-
-prompting:
-  tokenizer_source: verifier
-  composers:
-    planner_context:
-      prompts:
-        - "你是规划器。请把题目拆解成可执行步骤，每行一个步骤，不要直接给最终答案。\n题目：\n"
-        - ""
-      max_total_len: 1024
-      truncate_side: left
-      add_bos: false
-      add_eos: false
-    builder_context:
-      prompts:
-        - "题目：\n"
-        - "\n当前计划步骤：\n"
-        - "\n已接受前缀：\n"
-        - "\n候选续写：\n"
-      max_total_len: 4096
-      truncate_side: left
-      add_bos: false
-      add_eos: false
-    verifier_judge:
-      prompts:
-        - "你是一个严格的过程验证器。\n题目：\n"
-        - "\n计划步骤：\n"
-        - "\n已接受前缀：\n"
-        - "\n候选答案：\n"
-        - "\n请先在内部思考（不要输出思考过程）。最终只输出一个词：Right 或 Wrong。\n判断：\n"
-      max_total_len: 4096
-      truncate_side: left
-      add_bos: false
-      add_eos: false
+    output: []
+  deepspeed_config_path: deepspeed_zero2.json
+  compile: false
+  gradient_checkpointing: true
+  flash_attention: true
 
 data:
-  train_path: null
-  val_path: null
-  return_fields:
-    - prompt
-  tokenize_fields:
-    - prompt
+  sources:
+    - path: data/processed/train.jsonl
+      required_keys: [prompt, response]
+      tokenize_keys: [prompt, response]
+      name: train
+    - path: data/processed/val.jsonl
+      required_keys: [prompt, response]
+      tokenize_keys: [prompt, response]
+      name: val
+  max_seq_len: 4096
+  cache_dir: null
