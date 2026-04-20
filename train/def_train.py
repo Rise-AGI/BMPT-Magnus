@@ -251,6 +251,7 @@ def build_models_from_config(config: dict[str, Any], loader_fn: Any = None) -> d
         )
 
     return {
+        "policy": builder,
         "planner": planner,
         "builder": builder,
         "verifier": verifier,
