@@ -36,11 +36,17 @@
 模块路径：`bmpt.tokenizer.loader`
 
 导出函数：
-- `load_tokenizer(config: dict) -> Any`
+- `resolve_tokenizer_source(config, local_source=None) -> str`：通用 tokenizer 来源解析
+- `load_tokenizer(config) -> Any`：加载 tokenizer
 - `get_vocab_hash(tokenizer) -> str`
 
 说明：
-- 从 `config["models"]["policy"]["path"]` 加载 tokenizer
+- `resolve_tokenizer_source` 支持多级优先级解析：
+  1. `local_source`（调用方传入，如从 `data.tokenizer_source` 或 `prompting.tokenizer_source` 提取）
+  2. 顶层 `tokenizer_source`
+  3. 默认 `models.policy.path`
+- 支持值：models key（如 `policy`/`reference`）或直接路径
+- `load_tokenizer` 使用 `data.tokenizer_source` 作为局部来源
 - 自动设置 `pad_token = eos_token`
 
 ## 5. 数据预处理接口

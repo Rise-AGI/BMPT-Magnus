@@ -5,6 +5,8 @@ from typing import Any
 
 import torch
 
+from bmpt.tokenizer.loader import resolve_tokenizer_source
+
 
 @dataclass(slots=True)
 class Composer:
@@ -120,32 +122,14 @@ class Composer:
         }
 
 
-def _resolve_prompting_tokenizer_path(config: dict[str, Any]) -> str:
-    prompting_cfg = config.get("prompting", {})
-    tokenizer_source = prompting_cfg.get("tokenizer_source")
-    model_cfg = config.get("models", {})
-
-    if tokenizer_source is None:
-        policy_spec = model_cfg.get("policy")
-        if not isinstance(policy_spec, dict) or "path" not in policy_spec:
-            raise ValueError("Cannot resolve tokenizer_source: missing models.policy.path")
-        return str(policy_spec["path"])
-
-    if isinstance(tokenizer_source, str) and tokenizer_source in model_cfg:
-        model_spec = model_cfg[tokenizer_source]
-        if isinstance(model_spec, dict) and "path" in model_spec:
-            return str(model_spec["path"])
-
-    return str(tokenizer_source)
-
-
 def _load_tokenizer_for_prompting(config: dict[str, Any]) -> tuple[Any, int]:
     try:
         from transformers import AutoTokenizer
     except Exception as exc:
         raise ImportError("prompting composers require `transformers` for tokenizer loading") from exc
 
-    tokenizer_path = _resolve_prompting_tokenizer_path(config)
+    local_source = config.get("prompting", {}).get("tokenizer_source")
+    tokenizer_path = resolve_tokenizer_source(config, local_source)
     tokenizer = AutoTokenizer.from_pretrained(tokenizer_path, trust_remote_code=True)
     if tokenizer.pad_token_id is None:
         if tokenizer.eos_token_id is not None:
