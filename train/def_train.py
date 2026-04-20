@@ -78,6 +78,28 @@ def _tokenize_text(tokenizer: Any, text: str, max_len: int | None = None) -> lis
     return token_ids
 
 
+def _get_ids_from_batch_or_tokenize(
+    batch: dict[str, Any],
+    field: str,
+    tokenizer: Any,
+    index: int,
+    max_len: int | None = None,
+) -> list[int]:
+    ids_key = f"{field}_ids"
+    if ids_key in batch and isinstance(batch[ids_key], torch.Tensor):
+        ids_tensor = batch[ids_key][index]
+        ids = [int(tok) for tok in ids_tensor.tolist()]
+        if max_len is not None and max_len > 0:
+            ids = ids[:max_len]
+        return ids
+
+    texts = batch.get(field) or batch.get(f"{field}s") or []
+    if index < len(texts):
+        text = str(texts[index])
+        return _tokenize_text(tokenizer, text, max_len=max_len)
+    return []
+
+
 def _decode_text(tokenizer: Any, token_ids: list[int]) -> str:
     if not token_ids:
         return ""
@@ -484,15 +506,23 @@ def step(models: dict[str, Any], input: dict[str, Any]) -> dict[str, Any]:
     plan_texts: list[str] = []
     selected_steps_text: list[list[str]] = []
 
-    for prompt, final_label in zip(prompts, final_labels):
+    for sample_idx, (prompt, final_label) in enumerate(zip(prompts, final_labels)):
         prompt_text = str(prompt)
-        prompt_ids_planner = _compose_single(
-            composer=planner_composer,
+        prompt_ids_planner = _get_ids_from_batch_or_tokenize(
+            batch=batch,
+            field="prompt",
             tokenizer=tokenizer,
-            texts=[prompt_text],
-            token_limits=[max_prompt_tokens],
-            device=device,
+            index=sample_idx,
+            max_len=max_prompt_tokens,
         )
+        if not prompt_ids_planner:
+            prompt_ids_planner = _compose_single(
+                composer=planner_composer,
+                tokenizer=tokenizer,
+                texts=[prompt_text],
+                token_limits=[max_prompt_tokens],
+                device=device,
+            )
 
         plan_ids, _ = _sample_with_logprob(
             model=planner,
