@@ -2,23 +2,13 @@ seed: 42
 
 models:
   policy:
-    path: Qwen/Qwen3.5-7B-Instruct
+    path: Qwen/Qwen2.5-7B
     trainable: true
-    lora:
-      enabled: true
-      r: 64
-      alpha: 128
-      dropout: 0.05
-      target_modules:
-        - q_proj
-        - k_proj
-        - v_proj
-        - o_proj
 
 optimizer:
   type: adamw
-  lr: 2.0e-5
-  weight_decay: 0.1
+  lr: 5.0e-6
+  weight_decay: 0.01
   betas: [0.9, 0.95]
   eps: 1.0e-8
 
@@ -28,16 +18,15 @@ scheduler:
   min_lr_ratio: 0.1
 
 train:
-  control_mode: step
-  epochs: 1
+  control_mode: epoch
+  epochs: 3
   max_steps: -1
-  per_device_batch_size: 2
-  gradient_accumulation_steps: 8
-  max_seq_len: 4096
+  per_device_batch_size: 1
+  gradient_accumulation_steps: 16
   mixed_precision: bf16
   grad_clip_norm: 1.0
   checkpoint_every_steps: 500
-  checkpoint_dir: checkpoints
+  checkpoint_dir: checkpoints/qwen25-7b-sft-full
   load_ckpt_path: null
   load_ckpt_mode: full
   load_ckpt_strict: true
@@ -45,9 +34,9 @@ train:
 
 runtime:
   backend: accelerate
-  training_backend: pytorch
+  training_backend: deepspeed
   distributed_backend: nccl
-  attn_implementation: auto
+  attn_implementation: flash_attention_2
   metrics:
     enabled: true
     window_size: 20
@@ -59,7 +48,14 @@ runtime:
   flash_attention: true
 
 data:
-  train_path: data/train.jsonl
-  val_path: null
-  prompt_key: prompt
-  response_key: response
+  sources:
+    - path: data/train.jsonl
+      required_keys: [prompt, response]
+      tokenize_keys: [prompt, response]
+      name: train
+    - path: data/val.jsonl
+      required_keys: [prompt, response]
+      tokenize_keys: [prompt, response]
+      name: val
+  max_seq_len: 4096
+  cache_dir: null

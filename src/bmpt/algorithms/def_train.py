@@ -47,6 +47,43 @@ def _debug_print(enabled: bool, message: str) -> None:
     print(message, flush=True)
 
 
+def _extract_tokenize_keys_from_batch(batch: dict[str, Any]) -> list[str]:
+    keys: list[str] = []
+    for key in batch.keys():
+        if key.endswith("_input_ids"):
+            base_key = key[:-10]
+            keys.append(base_key)
+    return sorted(keys)
+
+
+def _build_input_ids_and_labels_from_batch(
+    batch: dict[str, Any],
+    tokenize_keys: list[str],
+    device: torch.device,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    input_ids_parts: list[torch.Tensor] = []
+    labels_parts: list[torch.Tensor] = []
+    lengths: list[int] = []
+
+    for idx, key in enumerate(tokenize_keys):
+        field_name = f"{key}_input_ids"
+        part_ids = _as_long_tensor(batch[field_name], device)
+        input_ids_parts.append(part_ids)
+
+        if idx == 0:
+            labels_parts.append(torch.full_like(part_ids, -100))
+        else:
+            labels_parts.append(part_ids.clone())
+
+        lengths.append(int(part_ids.shape[-1]))
+
+    input_ids = torch.cat(input_ids_parts, dim=-1)
+    labels = torch.cat(labels_parts, dim=-1)
+    attention_mask = torch.ones_like(input_ids, dtype=torch.long)
+
+    return input_ids, attention_mask, labels
+
+
 def step(models, input):
     debug = _is_debug_enabled(input)
     _debug_print(debug, "DEBUG step: enter")
@@ -80,24 +117,18 @@ def step(models, input):
     model_device = next(policy_model.parameters()).device
     _debug_print(debug, f"DEBUG step: model_device={model_device}")
 
-    input_ids = _as_long_tensor(batch["input_ids"], model_device)
+    tokenize_keys = _extract_tokenize_keys_from_batch(batch)
+    if not tokenize_keys:
+        raise ValueError("No *_input_ids fields found in batch")
+    _debug_print(debug, f"DEBUG step: tokenize_keys={tokenize_keys}")
+
+    input_ids, attention_mask, labels = _build_input_ids_and_labels_from_batch(
+        batch, tokenize_keys, model_device
+    )
     _debug_print(
         debug, f"DEBUG step: input_ids shape={input_ids.shape}, dtype={input_ids.dtype}"
     )
-
-    attention_mask_value = batch.get("attention_mask")
-    if attention_mask_value is None:
-        attention_mask = torch.ones_like(input_ids, dtype=torch.long)
-    else:
-        attention_mask = _as_long_tensor(attention_mask_value, model_device)
     _debug_print(debug, f"DEBUG step: attention_mask shape={attention_mask.shape}")
-
-    labels_value = batch.get("labels")
-    if labels_value is None:
-        labels = input_ids.clone()
-    else:
-        labels = _as_long_tensor(labels_value, model_device)
-    labels = labels.masked_fill(attention_mask == 0, -100)
     _debug_print(
         debug,
         f"DEBUG step: labels shape={labels.shape}, num_valid={(labels != -100).sum()}",
@@ -152,20 +183,13 @@ def evaluate(models, input):
 
     with torch.no_grad():
         for batch in val_iterable:
-            input_ids = _as_long_tensor(batch["input_ids"], model_device)
+            tokenize_keys = _extract_tokenize_keys_from_batch(batch)
+            if not tokenize_keys:
+                continue
 
-            attention_mask_value = batch.get("attention_mask")
-            if attention_mask_value is None:
-                attention_mask = torch.ones_like(input_ids, dtype=torch.long)
-            else:
-                attention_mask = _as_long_tensor(attention_mask_value, model_device)
-
-            labels_value = batch.get("labels")
-            if labels_value is None:
-                labels = input_ids.clone()
-            else:
-                labels = _as_long_tensor(labels_value, model_device)
-            labels = labels.masked_fill(attention_mask == 0, -100)
+            input_ids, attention_mask, labels = _build_input_ids_and_labels_from_batch(
+                batch, tokenize_keys, model_device
+            )
 
             outputs = policy_model(
                 input_ids=input_ids,

@@ -19,7 +19,69 @@
 - Python 模块入口：`python -m bmpt.cli.train`
 - 默认配置：`src/bmpt/algorithms/config.yaml`
 
-## 3. `step(models, input)` 返回协议
+## 3. 模型加载接口
+
+模块路径：`bmpt.model.loader`
+
+导出函数：
+- `load_model(label: str, spec: dict, config: dict) -> torch.nn.Module`
+
+说明：
+- `label`：模型标识（如 `policy`）
+- `spec`：模型配置（`path`、`lora` 等）
+- `config`：完整训练配置
+
+## 4. Tokenizer 加载接口
+
+模块路径：`bmpt.tokenizer.loader`
+
+导出函数：
+- `load_tokenizer(config: dict) -> Any`
+- `get_vocab_hash(tokenizer) -> str`
+
+说明：
+- 从 `config["models"]["policy"]["path"]` 加载 tokenizer
+- 自动设置 `pad_token = eos_token`
+
+## 5. 数据预处理接口
+
+模块路径：`bmpt.data.processor`
+
+核心函数：
+- `load_jsonl(path) -> list[dict]`
+- `save_jsonl(records, path)`
+- `validate_required_keys(records, required_keys, source_path)`
+- `tokenize_records(records, tokenizer, tokenize_keys, max_seq_len) -> list[dict]`
+- `process_source(source_config, tokenizer, max_seq_len, cache_dir) -> list[dict]`
+- `process_all_sources(config, tokenizer) -> dict[str, list[dict]]`
+
+预处理输出格式：
+```json
+{
+  "prompt": "原始文本",
+  "response": "原始文本",
+  "prompt_input_ids": [1, 2, 3, ...],
+  "response_input_ids": [4, 5, 6, ...]
+}
+```
+
+说明：
+- 保留原始字段
+- 每个 `tokenize_key` 生成 `{key}_input_ids` 字段
+- 不生成 `attention_mask`、`labels`
+
+## 6. DataLoader 构建接口
+
+模块路径：`bmpt.data.dataloader`
+
+导出函数：
+- `build_dataloader(records, config, dist_ctx, shuffle=True) -> DataLoader`
+
+说明：
+- `records`：预处理后的记录列表
+- 返回的 DataLoader 每个批次为 `dict[str, Any]`，包含 `{key}_input_ids` 字段
+
+## 7. `step(models, input)` 返回协议
 
 `step` 返回字典，至少包含：
 
@@ -39,7 +101,26 @@ return {
 }
 ```
 
-## 4. `step(models, input)` 可选输入
+## 8. `step(models, input)` 输入格式
+
+`input["batch"]` 包含预处理后的数据：
+
+```python
+{
+    "prompt_input_ids": torch.Tensor,  # shape: [batch_size, seq_len]
+    "response_input_ids": torch.Tensor,
+    # 其他 *_input_ids 字段...
+}
+```
+
+默认 `step` 函数逻辑：
+
+1. 从 batch 中提取所有 `*_input_ids` 字段
+2. 按字段名排序组合成合并的 `input_ids`
+3. 生成 `attention_mask`（全 1）
+4. 生成 `labels`：第一个 tokenize_key 对应 -100，其余保持原值
+
+## 9. `step(models, input)` 可选输入
 
 当配置了 `config.prompting.composers` 时，训练主程序会在启动阶段完成 prompt tokenize 并注入：
 
@@ -58,7 +139,7 @@ return {
 
 - `[prompt] + [model1 out] + [prompt] + [model2 out] + ...`
 
-## 5. `evaluate(models, input)` 约定
+## 10. `evaluate(models, input)` 约定
 
 - `evaluate` 由用户在 `def_train.py` 内完全实现。
 - 训练框架不提供默认 eval 聚合逻辑，不会回退到 `step`。
@@ -77,12 +158,12 @@ return {
 - `metrics`: `dict[str, float]`
 - `aux`: `dict[str, Any]`
 
-## 6. 分布式约定
+## 11. 分布式约定
 
 - `bmpt-train` 支持 launcher 模式（`--nproc-per-node` 等参数）与 worker 模式（由环境变量 `RANK/WORLD_SIZE/LOCAL_RANK` 触发）。
 - worker 进程分布式初始化由 `bmpt.core.distributed.init_distributed` 统一处理。
 
-## 7. Checkpoint 恢复契约
+## 12. Checkpoint 恢复契约
 
 - 训练入口使用统一 `.pt` checkpoint payload（`format_version=2`）。
 - `train.load_ckpt_mode=full`：恢复 model/optimizer/scheduler/step，并覆盖配置键：`optimizer.*`、`scheduler.*`、`train.gradient_accumulation_steps`、`train.mixed_precision`、`runtime.training_backend`。

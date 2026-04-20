@@ -50,13 +50,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--loader",
-        default="bmpt.components.qwen_components:load_model",
+        default="bmpt.model.loader:load_model",
         help="Model loader symbol path module:function",
-    )
-    parser.add_argument(
-        "--dataloader",
-        default="bmpt.components.qwen_components:build_dataloader",
-        help="Dataloader builder symbol path module:function",
     )
     parser.add_argument(
         "--def-train",
@@ -1167,7 +1162,6 @@ def _run_deepspeed_backend(
 def run_train(
     config_path: str | Path,
     loader: str,
-    dataloader: str,
     def_train_module: str,
     max_steps_override: int | None = None,
     backend_override: str | None = None,
@@ -1213,31 +1207,45 @@ def run_train(
     backend = config.get("runtime", {}).get("distributed_backend", "nccl")
     dist_ctx = init_distributed(backend=backend)
 
+    from bmpt.data import build_dataloader, process_all_sources
+    from bmpt.tokenizer import load_tokenizer
+
     try:
         loader_fn = _load_symbol(loader)
-        dataloader_fn = _load_symbol(dataloader)
+
+        tokenizer = load_tokenizer(config)
+        if env_rank == 0:
+            print("[bmpt] tokenizer loaded", flush=True)
+
+        processed_data = process_all_sources(config, tokenizer)
+        if env_rank == 0:
+            print(f"[bmpt] processed sources: {list(processed_data.keys())}", flush=True)
 
         models = build_models_from_config_fn(config, loader_fn=loader_fn)
         training_backend = _resolve_training_backend(config, backend_override)
         if training_backend == "pytorch":
             models = wrap_models_for_ddp(models, dist_ctx)
 
-        val_iterable = dataloader_fn(
-            config, dist_ctx, path_key="val_path", shuffle=False
-        )
-        if val_iterable is not None and training_backend != "deepspeed":
-            _run_validation(
-                models=models,
-                val_iterable=val_iterable,
-                config=config,
-                config_path=config_path,
-                dist_ctx=dist_ctx,
-                composers=composers,
-                evaluate_fn=evaluate_fn,
-                phase="before_train",
-            )
+        val_records = processed_data.get("val")
+        val_iterable = None
+        if val_records is not None:
+            val_iterable = build_dataloader(val_records, config, dist_ctx, shuffle=False)
+            if training_backend != "deepspeed":
+                _run_validation(
+                    models=models,
+                    val_iterable=val_iterable,
+                    config=config,
+                    config_path=config_path,
+                    dist_ctx=dist_ctx,
+                    composers=composers,
+                    evaluate_fn=evaluate_fn,
+                    phase="before_train",
+                )
 
-        data_iterable = dataloader_fn(config, dist_ctx)
+        train_records = processed_data.get("train")
+        if train_records is None:
+            raise ValueError("No 'train' source found in config['data']['sources']")
+        data_iterable = build_dataloader(train_records, config, dist_ctx)
         total_steps = _resolve_total_steps_by_mode(
             config, max_steps_override, data_iterable
         )
@@ -1275,10 +1283,8 @@ def run_train(
                 load_ckpt_strict=load_ckpt_strict,
             )
 
-        if val_iterable is not None:
-            val_iterable = dataloader_fn(
-                config, dist_ctx, path_key="val_path", shuffle=False
-            )
+        if val_records is not None:
+            val_iterable = build_dataloader(val_records, config, dist_ctx, shuffle=False)
             _run_validation(
                 models=models,
                 val_iterable=val_iterable,
@@ -1305,8 +1311,6 @@ def _build_worker_args(args: argparse.Namespace) -> list[str]:
         str(args.config),
         "--loader",
         args.loader,
-        "--dataloader",
-        args.dataloader,
         "--def-train",
         args.def_train,
     ]
@@ -1437,7 +1441,6 @@ def _run_train_entry(args: argparse.Namespace) -> None:
     run_train(
         config_path=args.config,
         loader=args.loader,
-        dataloader=args.dataloader,
         def_train_module=args.def_train,
         max_steps_override=args.max_steps,
         backend_override=args.backend,
