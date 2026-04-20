@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import os
+
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
 import argparse
 import copy
 import hashlib
 import json
-import os
 import subprocess
 import sys
 import time
