@@ -81,11 +81,13 @@
 模块路径：`bmpt.data.dataloader`
 
 导出函数：
-- `build_dataloader(records, config, dist_ctx, shuffle=True) -> DataLoader`
+- `build_dataloader(records, config, dist_ctx, shuffle=True, pad_token_id=0) -> DataLoader`
 
 说明：
 - `records`：预处理后的记录列表
+- `pad_token_id`：用于动态 padding 的 pad token ID（`*_input_ids` 字段使用此值填充）
 - 返回的 DataLoader 每个批次为 `dict[str, Any]`，包含 `{key}_input_ids` 字段
+- 支持变长序列动态 padding：batch 内 `*_input_ids` 自动 pad 到最大长度
 
 ## 7. `step(models, input)` 返回协议
 

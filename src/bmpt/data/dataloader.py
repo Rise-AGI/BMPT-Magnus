@@ -15,6 +15,7 @@ def build_dataloader(
     config: dict[str, Any],
     dist_ctx: Any,
     shuffle: bool = True,
+    pad_token_id: int = 0,
 ) -> DataLoader:
     train_cfg = config.get("train", {})
     batch_size = int(train_cfg.get("per_device_batch_size", 1))
@@ -39,11 +40,11 @@ def build_dataloader(
         num_workers=2,
         pin_memory=True,
         drop_last=False,
-        collate_fn=_collate_fn,
+        collate_fn=lambda batch: _collate_fn(batch, pad_token_id),
     )
 
 
-def _collate_fn(batch: list[dict[str, Any]]) -> dict[str, Any]:
+def _collate_fn(batch: list[dict[str, Any]], pad_token_id: int = 0) -> dict[str, Any]:
     result: dict[str, Any] = {}
     all_keys: set[str] = set()
     for item in batch:
@@ -64,7 +65,21 @@ def _collate_fn(batch: list[dict[str, Any]]) -> dict[str, Any]:
 
         non_none_values = [v for v in values if v is not None]
         if non_none_values and isinstance(non_none_values[0], torch.Tensor):
-            result[key] = torch.stack(values)
+            shapes = [tuple(v.shape) for v in non_none_values]
+            if len(set(shapes)) == 1:
+                result[key] = torch.stack(values)
+            else:
+                is_input_ids = key == "input_ids" or key.endswith("_input_ids")
+                pad_val = pad_token_id if is_input_ids else 0
+                max_len = max(v.shape[0] for v in non_none_values)
+                padded = torch.full(
+                    (len(non_none_values), max_len),
+                    fill_value=pad_val,
+                    dtype=non_none_values[0].dtype,
+                )
+                for i, v in enumerate(non_none_values):
+                    padded[i, : v.shape[0]] = v
+                result[key] = padded
         else:
             result[key] = values
 
