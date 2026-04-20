@@ -127,6 +127,19 @@ def _compose_single(
     return [int(item) for item in composed["input_ids"][0, :valid_len].tolist()]
 
 
+def _compose_ids(
+    composer: Composer,
+    ids_list: list[list[int]],
+    device: torch.device,
+) -> list[int]:
+    outputs: list[torch.Tensor] = []
+    for ids in ids_list:
+        outputs.append(_to_single_batch_tensor(ids, device=device))
+    composed = composer.compose(outputs=outputs)
+    valid_len = int(composed["lengths"][0].item())
+    return [int(item) for item in composed["input_ids"][0, :valid_len].tolist()]
+
+
 class QwenProcessVerifier(nn.Module):
     def __init__(
         self,
@@ -149,20 +162,15 @@ class QwenProcessVerifier(nn.Module):
             return 0.0
         return 0.0
 
-    def judge(
+    def judge_ids(
         self,
-        prompt: str,
-        plan_step: str,
-        prefix_text: str,
-        candidate: str,
+        prompt_ids: list[int],
+        plan_step_ids: list[int],
+        prefix_ids: list[int],
+        candidate_ids: list[int],
         composer: Composer,
         device: torch.device,
     ) -> float:
-        prompt_ids = _tokenize_text(self.tokenizer, prompt)
-        plan_step_ids = _tokenize_text(self.tokenizer, plan_step)
-        prefix_ids = _tokenize_text(self.tokenizer, prefix_text)
-        candidate_ids = _tokenize_text(self.tokenizer, candidate)
-
         composed = composer.compose(
             outputs=[
                 _to_single_batch_tensor(prompt_ids, device=device),
@@ -399,18 +407,18 @@ def _discounted_returns(step_rewards: list[float], gamma: float) -> list[float]:
 
 def _verifier_prob(
     verifier: QwenProcessVerifier,
-    prompt_text: str,
-    plan_step: str,
-    prefix_text: str,
-    candidate_text: str,
+    prompt_ids: list[int],
+    plan_step_ids: list[int],
+    prefix_ids: list[int],
+    candidate_ids: list[int],
     composer: Composer,
     device: torch.device,
 ) -> torch.Tensor:
-    score = verifier.judge(
-        prompt=prompt_text,
-        plan_step=plan_step,
-        prefix_text=prefix_text,
-        candidate=candidate_text,
+    score = verifier.judge_ids(
+        prompt_ids=prompt_ids,
+        plan_step_ids=plan_step_ids,
+        prefix_ids=prefix_ids,
+        candidate_ids=candidate_ids,
         composer=composer,
         device=device,
     )
@@ -539,16 +547,15 @@ def step(models: dict[str, Any], input: dict[str, Any]) -> dict[str, Any]:
         if not plan_steps:
             continue
 
-        prefix_text = ""
+        prefix_ids: list[int] = []
         step_rewards_for_planner: list[float] = []
         local_selected_text: list[str] = []
 
         for plan_step in plan_steps:
-            step_prompt_ids = _compose_single(
+            plan_step_ids = _tokenize_text(tokenizer, plan_step, max_len=planner_step_token_budget)
+            step_prompt_ids = _compose_ids(
                 composer=builder_composer,
-                tokenizer=tokenizer,
-                texts=[prompt_text, plan_step, prefix_text],
-                token_limits=[max_prompt_tokens, planner_step_token_budget, builder_step_tokens * 2],
+                ids_list=[prompt_ids_planner, plan_step_ids, prefix_ids],
                 device=device,
             )
 
@@ -576,10 +583,10 @@ def step(models: dict[str, Any], input: dict[str, Any]) -> dict[str, Any]:
                     )
                     verifier_prob = _verifier_prob(
                         verifier=verifier,
-                        prompt_text=prompt_text,
-                        plan_step=plan_step,
-                        prefix_text=prefix_text,
-                        candidate_text=_decode_text(tokenizer, cand_ids),
+                        prompt_ids=prompt_ids_planner,
+                        plan_step_ids=plan_step_ids,
+                        prefix_ids=prefix_ids,
+                        candidate_ids=cand_ids,
                         composer=verifier_composer,
                         device=verifier_device,
                     )
@@ -619,7 +626,7 @@ def step(models: dict[str, Any], input: dict[str, Any]) -> dict[str, Any]:
             rewards_all.append(chosen_reward)
             step_text = _decode_text(tokenizer, chosen_ids)
             local_selected_text.append(step_text)
-            prefix_text = (prefix_text + "\n" + step_text).strip()
+            prefix_ids = prefix_ids + chosen_ids
 
         selected_steps_text.append(local_selected_text)
         planner_returns = _discounted_returns(step_rewards_for_planner, gamma=planner_gamma)
@@ -707,16 +714,26 @@ def evaluate(models: dict[str, Any], input: dict[str, Any]) -> dict[str, Any]:
             prompts = batch.get("prompt") or batch.get("prompts") or []
             responses = batch.get("response") or batch.get("targets") or []
 
-            for prompt_text, response_text in zip(prompts, responses):
-                prompt_text = str(prompt_text)
-                response_text = str(response_text)
+            for idx, (prompt_text, response_text) in enumerate(zip(prompts, responses)):
+                prompt_ids = _get_ids_from_batch_or_tokenize(
+                    batch=batch,
+                    field="prompt",
+                    tokenizer=tokenizer,
+                    index=idx,
+                )
+                response_ids = _get_ids_from_batch_or_tokenize(
+                    batch=batch,
+                    field="response",
+                    tokenizer=tokenizer,
+                    index=idx,
+                )
 
                 verifier_prob = _verifier_prob(
                     verifier=verifier,
-                    prompt_text=prompt_text,
-                    plan_step="",
-                    prefix_text="",
-                    candidate_text=response_text,
+                    prompt_ids=prompt_ids,
+                    plan_step_ids=[],
+                    prefix_ids=[],
+                    candidate_ids=response_ids,
                     composer=verifier_composer,
                     device=verifier_device,
                 )
