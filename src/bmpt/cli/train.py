@@ -1237,6 +1237,7 @@ def run_train(
         loader_fn = _load_symbol(loader)
 
         tokenizer = load_tokenizer(config)
+        pad_token_id = int(tokenizer.pad_token_id) if tokenizer.pad_token_id is not None else 0
         if env_rank == 0:
             print("[bmpt] tokenizer loaded", flush=True)
 
@@ -1252,7 +1253,7 @@ def run_train(
         val_records = processed_data.get("val")
         val_iterable = None
         if val_records is not None:
-            val_iterable = build_dataloader(val_records, config, dist_ctx, shuffle=False)
+            val_iterable = build_dataloader(val_records, config, dist_ctx, shuffle=False, pad_token_id=pad_token_id)
             if training_backend != "deepspeed":
                 _run_validation(
                     models=models,
@@ -1268,7 +1269,7 @@ def run_train(
         train_records = processed_data.get("train")
         if train_records is None:
             raise ValueError("No 'train' source found in config['data']['sources']")
-        data_iterable = build_dataloader(train_records, config, dist_ctx)
+        data_iterable = build_dataloader(train_records, config, dist_ctx, pad_token_id=pad_token_id)
         total_steps = _resolve_total_steps_by_mode(
             config, max_steps_override, data_iterable
         )
@@ -1309,7 +1310,7 @@ def run_train(
             )
 
         if val_records is not None:
-            val_iterable = build_dataloader(val_records, config, dist_ctx, shuffle=False)
+            val_iterable = build_dataloader(val_records, config, dist_ctx, shuffle=False, pad_token_id=pad_token_id)
             _run_validation(
                 models=models,
                 val_iterable=val_iterable,
