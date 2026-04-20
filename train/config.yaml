@@ -61,7 +61,7 @@ train:
 runtime:
   training_backend: deepspeed
   deepspeed_config_path: deepspeed.zero2.json
-  attn_implementation: auto
+  attn_implementation: flash_attention_2
   gradient_checkpointing: true
   metrics:
     enabled: true
