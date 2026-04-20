@@ -114,6 +114,11 @@ bmpt-train --nnodes 2 --node-rank 0 --nproc-per-node 8 --master-addr <master_ip>
 | `tokenize_keys` | list[string] | 是 | 需要进行 tokenize 的字段 |
 | `name` | string | 否 | 数据源名称，用于区分 train/val |
 
+**`name` 字段约定**：
+
+- `name: train` — **必需**，训练数据源
+- `name: val` — **可选**，验证数据源（训练前后自动调用 evaluate）
+
 示例：
 
 ```yaml
