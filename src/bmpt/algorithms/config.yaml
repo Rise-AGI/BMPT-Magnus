@@ -49,6 +49,7 @@ runtime:
   flash_attention: true
 
 data:
+  tokenizer_source: null   # 可选：policy/reference/或直接路径，优先级高于顶层tokenizer_source
   sources:
     - path: data/processed/train.jsonl
       required_keys: [prompt, response]

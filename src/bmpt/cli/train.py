@@ -860,7 +860,15 @@ def _run_pytorch_backend(
     perf_logger = StepMetricsLogger.from_config(metrics_cfg)
     metrics_emitter = MetricsEmitter.from_config(metrics_cfg)
 
-    optimizer = build_optimizer(models, config)
+    target_model_name = train_cfg.get("train_target_model")
+    if target_model_name is not None:
+        if target_model_name not in models:
+            raise ValueError(f"train_target_model '{target_model_name}' not found in models")
+        optimizer_models = {target_model_name: models[target_model_name]}
+    else:
+        optimizer_models = models
+
+    optimizer = build_optimizer(optimizer_models, config)
     scheduler = build_scheduler(optimizer, config, total_training_steps=total_steps)
     engine = TrainingEngine(
         step_fn=step_fn,
@@ -1012,19 +1020,26 @@ def _run_deepspeed_backend(
 
     ds_config = _load_deepspeed_config(config, config_path, total_steps=total_steps)
 
-    policy_model = models["policy"].to(dist_ctx.device)
+    target_model_name = train_cfg.get("train_target_model", "policy")
+    if target_model_name not in models:
+        raise ValueError(f"train_target_model '{target_model_name}' not found in models")
+
+    target_model = models[target_model_name].to(dist_ctx.device)
     trainable_parameters = [
-        param for param in policy_model.parameters() if param.requires_grad
+        param for param in target_model.parameters() if param.requires_grad
     ]
+    if len(trainable_parameters) == 0:
+        raise ValueError(f"Model '{target_model_name}' has no trainable parameters")
+
     ds_engine, _, _, _ = deepspeed.initialize(
-        model=policy_model,
+        model=target_model,
         model_parameters=trainable_parameters,
         config=ds_config,
     )
 
-    models["policy"] = ds_engine
+    models[target_model_name] = ds_engine
     for name, model in models.items():
-        if name == "policy":
+        if name == target_model_name:
             continue
         models[name] = model.to(dist_ctx.device)
 

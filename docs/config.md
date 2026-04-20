@@ -7,6 +7,7 @@
 ```yaml
 seed: 42
 
+tokenizer_source: policy   # 可选，全局默认tokenizer来源
 models: {...}
 optimizer: {...}
 scheduler: {...}
@@ -15,6 +16,12 @@ weighted: {...}   # 可选
 runtime: {...}
 data: {...}
 ```
+
+- `tokenizer_source` 为可选顶层配置，用于指定全局默认 tokenizer 来源。
+- 支持值：
+  - `policy`/`reference` 等 models 中的 key → 使用对应模型的 tokenizer
+  - 绝对/相对路径 → 直接加载该 tokenizer
+- 优先级：局部 `data.tokenizer_source` / `prompting.tokenizer_source` > 顶层 `tokenizer_source` > 默认 `models.policy.path`
 
 ## `models`
 
@@ -169,13 +176,23 @@ runtime:
 
 ```yaml
 data:
-  train_path: data/train.jsonl
-  val_path: null
-  prompt_key: prompt
-  response_key: response
+  tokenizer_source: null   # 可选，优先级高于顶层tokenizer_source
+  sources:
+    - path: data/processed/train.jsonl
+      required_keys: [prompt, response]
+      tokenize_keys: [prompt, response]
+      name: train
+    - path: data/processed/val.jsonl
+      required_keys: [prompt, response]
+      tokenize_keys: [prompt, response]
+      name: val
+  max_seq_len: 512
+  cache_dir: null
 ```
 
-- `bmpt.components.qwen_components` 默认按 JSONL 读取该结构。
+- `tokenizer_source` 可选，用于指定数据预处理使用的 tokenizer 来源。
+- 优先级：`data.tokenizer_source` > 顶层 `tokenizer_source` > 默认 `models.policy.path`。
+- `sources` 为数据源列表，每个数据源可指定 `path`、`required_keys`、`tokenize_keys`、`name`。
 
 ## `prompting`（可选）
 
@@ -198,7 +215,7 @@ prompting:
       output_pad_token_id: null
 ```
 
-- `tokenizer_source` 默认绑定 `models.policy.path`。
+- `tokenizer_source` 优先级：`prompting.tokenizer_source` > 顶层 `tokenizer_source` > 默认 `models.policy.path`。
 - `composers.<name>.prompts` 长度必须为 `N+1`，对应 `compose(outputs=[...])` 的 `N` 组 batched output。
 - `compose` 支持动态 padding，并受 `max_total_len` 限制。
 - 性能关键点：prompt 仅在启动时 tokenize 一次，step 内只做 token 级拼接。
