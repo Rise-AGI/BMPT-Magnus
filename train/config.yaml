@@ -5,7 +5,7 @@ algorithm:
   step: pbv_stage1
   max_prompt_tokens: 384
   training_schedule:
-    planner_steps: 1
+    planner_steps: 0
     builder_steps: 2
   planner:
     max_plan_tokens: 160
@@ -27,7 +27,7 @@ models:
     path: /data/zhaoweiran/models/Qwen/Qwen2.5-7B
   planner:
     path: /data/zhaoweiran/models/Qwen/Qwen2.5-7B
-    trainable: true
+    trainable: false
   builder:
     path: /data/zhaoweiran/models/Qwen/Qwen2.5-7B
     trainable: true
