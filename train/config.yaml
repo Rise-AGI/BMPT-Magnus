@@ -1,14 +1,42 @@
 seed: 42
 
+algorithm:
+  name: pbv_stage1
+  step: pbv_stage1
+  max_prompt_tokens: 384
+  training_schedule:
+    planner_steps: 1
+    builder_steps: 2
+  planner:
+    max_plan_tokens: 160
+    max_plan_steps: 12
+    step_token_budget: 80
+    gamma: 0.95
+    temperature: 0.8
+    reward_mix_final: 0.0
+  builder:
+    k_samples: 8
+    step_max_tokens: 96
+    temperature: 0.95
+    kl_beta: 0.02
+    pass_select_tau: 0.7
+    verifier_threshold: 0.5
+
 models:
-  policy:
+  planner:
+    path: /data/zhaoweiran/models/Qwen/Qwen2.5-7B
+    trainable: true
+  builder:
     path: /data/zhaoweiran/models/Qwen/Qwen2.5-7B 
     trainable: true
+  verifier:
+    path: /data/zhaoweiran/models/Qwen/Qwen2.5-7B 
+    trainable: false
 
 optimizer:
   type: adamw
-  lr: 1.0e-5
-  weight_decay: 0.1
+  lr: 2.0e-5
+  weight_decay: 0.01
   betas: [0.9, 0.95]
   eps: 1.0e-8
 
@@ -18,41 +46,29 @@ scheduler:
   min_lr_ratio: 0.1
 
 train:
-  control_mode: epoch
-  epochs: 4
-  max_steps: -1
-  per_device_batch_size: 1
+  control_mode: step
+  max_steps: 6000
+  per_device_batch_size: 2
   gradient_accumulation_steps: 8
-  max_seq_len: 512
   mixed_precision: bf16
   grad_clip_norm: 1.0
-  checkpoint_every_steps: 400
-  checkpoint_dir: /data/magnus/rl-group/checkpoints/qwen25_sft_fullparam_torch
-  load_ckpt_path: /data/magnus/rl-group/checkpoints/qwen25_sft_fullparam_torch/step_800.pt
-  load_ckpt_mode: full
-  load_ckpt_strict: true
   log_every_steps: 10
+  checkpoint_every_steps: 500
+  checkpoint_dir: ./checkpoints/pbv-stg1
 
 runtime:
-  backend: accelerate
   training_backend: deepspeed
-  distributed_backend: nccl
+  deepspeed_config_path: deepspeed.zero2.json
   attn_implementation: auto
+  gradient_checkpointing: true
   metrics:
     enabled: true
-    window_size: 20
+    window_size: 50
     global_throughput: true
-    output:
-      - stdout
-      - file:./.magnus_result
-  deepspeed_config_path: deepspeed_zero2.json
-  debug: false
-  compile: false
-  gradient_checkpointing: true
-  flash_attention: true
+    output: [stdout]
 
 data:
-  train_path: data/processed/train.jsonl
-  val_path: data/processed/val.jsonl
+  train_path: null
+  val_path: null
   prompt_key: prompt
-  response_key: response
+  response_key: target
