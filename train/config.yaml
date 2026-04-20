@@ -67,8 +67,44 @@ runtime:
     global_throughput: true
     output: [stdout]
 
+prompting:
+  tokenizer_source: verifier
+  composers:
+    planner_context:
+      prompts:
+        - "你是规划器。请把题目拆解成可执行步骤，每行一个步骤，不要直接给最终答案。\n题目：\n"
+        - ""
+      max_total_len: 1024
+      truncate_side: left
+      add_bos: false
+      add_eos: false
+    builder_context:
+      prompts:
+        - "题目：\n"
+        - "\n当前计划步骤：\n"
+        - "\n已接受前缀：\n"
+        - "\n候选续写：\n"
+      max_total_len: 4096
+      truncate_side: left
+      add_bos: false
+      add_eos: false
+    verifier_judge:
+      prompts:
+        - "你是一个严格的过程验证器。\n题目：\n"
+        - "\n计划步骤：\n"
+        - "\n已接受前缀：\n"
+        - "\n候选答案：\n"
+        - "\n请先在内部思考（不要输出思考过程）。最终只输出一个词：Right 或 Wrong。\n判断：\n"
+      max_total_len: 4096
+      truncate_side: left
+      add_bos: false
+      add_eos: false
+
 data:
   train_path: null
   val_path: null
+  return_fields:
+    - prompt
+    - response
   prompt_key: prompt
-  response_key: target
+  response_key: response
