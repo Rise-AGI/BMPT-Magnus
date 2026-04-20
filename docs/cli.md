@@ -56,6 +56,12 @@ bmpt-train --nnodes 2 --node-rank 0 --nproc-per-node 8 --master-addr <master_ip>
 - Python 模块路径（如 `bmpt.algorithms.def_train`）
 - 文件路径（如 `/path/to/def_train.py`）
 
+### `--loader`
+
+模型加载函数，默认 `bmpt.model.loader:load_model`。
+
+支持自定义模型加载逻辑，只需提供模块路径和函数名。
+
 ### DeepSpeed 配置
 
 `runtime.deepspeed_config_path` 仍是最高优先级来源。
@@ -64,7 +70,7 @@ bmpt-train --nnodes 2 --node-rank 0 --nproc-per-node 8 --master-addr <master_ip>
 
 - `runtime.deepspeed_config_path`
 
-并按“相对 `--config` 文件目录”解析相对路径。
+并按"相对 `--config` 文件目录"解析相对路径。
 
 ### Checkpoint 恢复（配置驱动）
 
@@ -95,7 +101,79 @@ bmpt-train --nnodes 2 --node-rank 0 --nproc-per-node 8 --master-addr <master_ip>
 
 当请求 `flash_attention_2` 但环境不支持时，程序会自动回退到默认 attention，并打印 warning。
 
-## 5. 常见示例
+## 5. 数据配置
+
+### `data.sources`
+
+定义数据源列表，每个数据源包含以下字段：
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `path` | string | 是 | JSONL 文件路径 |
+| `required_keys` | list[string] | 是 | 必须存在的字段，缺失则报错 |
+| `tokenize_keys` | list[string] | 是 | 需要进行 tokenize 的字段 |
+| `name` | string | 否 | 数据源名称，用于区分 train/val |
+
+示例：
+
+```yaml
+data:
+  sources:
+    - path: data/train.jsonl
+      required_keys: [prompt, response]
+      tokenize_keys: [prompt, response]
+      name: train
+    - path: data/val.jsonl
+      required_keys: [prompt, response]
+      tokenize_keys: [prompt, response]
+      name: val
+  max_seq_len: 4096
+  cache_dir: null
+```
+
+### 预处理流程
+
+训练启动时，会在 tokenizer 加载后自动执行：
+
+1. 加载 JSONL 文件
+2. 验证 `required_keys` 是否存在
+3. 对 `tokenize_keys` 指定的字段进行 tokenize
+4. 生成 `{key}_input_ids` 字段（如 `prompt_input_ids`、`response_input_ids`）
+5. 保存缓存文件
+
+### 缓存机制
+
+预处理后的数据会自动缓存到：
+
+- 默认：`{source_dir}/{filename}.tokenized.jsonl`
+- 自定义：`cache_dir/{filename}.tokenized.jsonl`
+
+缓存文件附带 `.meta.json` 元数据，包含哈希值。当以下条件变化时，自动重新处理：
+
+- 源文件内容或大小变化
+- `required_keys` 变化
+- `tokenize_keys` 变化
+- `max_seq_len` 变化
+- tokenizer vocab 变化
+
+### max_seq_len 截断规则
+
+`data.max_seq_len` 用于截断 tokenize 后的序列长度。**注意：截断长度是共用的**，所有 `tokenize_keys` 字段共享同一个 `max_seq_len` 值。
+
+若需要更精细的截断控制，请使用 `config.prompting.composers`。
+
+### labels 生成规则
+
+默认 `step` 函数的 labels 生成规则：
+
+- `tokenize_keys` 中第一个字段对应的 input_ids：labels = -100（不计算 loss）
+- 其余字段对应的 input_ids：labels = 原 token id（计算 loss）
+
+例如 `tokenize_keys: [prompt, response]`：
+- `prompt_input_ids` 对应的 labels = -100
+- `response_input_ids` 对应的 labels = 原 token id
+
+## 6. 常见示例
 
 使用 workspace 自动发现：
 

@@ -2,7 +2,7 @@ seed: 42
 
 models:
   policy:
-    path: /data/zhaoweiran/models/Qwen/Qwen2.5-7B 
+    path: /data/zhaoweiran/models/Qwen/Qwen2.5-7B
     trainable: true
 
 optimizer:
@@ -23,7 +23,6 @@ train:
   max_steps: -1
   per_device_batch_size: 1
   gradient_accumulation_steps: 8
-  max_seq_len: 512
   mixed_precision: bf16
   grad_clip_norm: 1.0
   checkpoint_every_steps: 400
@@ -52,7 +51,14 @@ runtime:
   flash_attention: true
 
 data:
-  train_path: data/processed/train.jsonl
-  val_path: data/processed/val.jsonl
-  prompt_key: prompt
-  response_key: response
+  sources:
+    - path: data/processed/train.jsonl
+      required_keys: [prompt, response]
+      tokenize_keys: [prompt, response]
+      name: train
+    - path: data/processed/val.jsonl
+      required_keys: [prompt, response]
+      tokenize_keys: [prompt, response]
+      name: val
+  max_seq_len: 512
+  cache_dir: null
