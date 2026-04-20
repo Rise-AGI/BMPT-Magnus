@@ -68,6 +68,9 @@ def wrap_models_for_ddp(
 ) -> dict[str, torch.nn.Module]:
     wrapped: dict[str, torch.nn.Module] = {}
     for name, model in models.items():
+        if not isinstance(model, torch.nn.Module):
+            wrapped[name] = model
+            continue
         model = model.to(ctx.device)
         has_trainable = any(param.requires_grad for param in model.parameters())
         if ctx.is_distributed and has_trainable:

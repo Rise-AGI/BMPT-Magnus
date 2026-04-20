@@ -16,7 +16,8 @@ def build_optimizer(models: dict[str, torch.nn.Module], config: dict[str, Any]) 
 
     trainable_params = []
     for model in models.values():
-        trainable_params.extend(param for param in model.parameters() if param.requires_grad)
+        if isinstance(model, torch.nn.Module):
+            trainable_params.extend(param for param in model.parameters() if param.requires_grad)
 
     if optimizer_type == "adamw":
         return torch.optim.AdamW(
