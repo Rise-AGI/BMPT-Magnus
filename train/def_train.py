@@ -761,6 +761,8 @@ def step(models: dict[str, Any], input: dict[str, Any], engine=None) -> dict[str
             )
 
             _debug_print(config,"[\033[34m训练\033[0m] 完成采样 Builder")
+            _debug_print(config,"[\033[33m监测\033[0m] 申请的显存：" + str(torch.cuda.memory_allocated()/1e9) + "GB")
+            _debug_print(config,"[\033[33m监测\033[0m] 保留的显存：" + str(torch.cuda.memory_reserved()/1e9) + "GB")
 
 
             group_samples = [ids for ids, _ in batch_results]
@@ -776,6 +778,8 @@ def step(models: dict[str, Any], input: dict[str, Any], engine=None) -> dict[str
 
 
                 _debug_print(config,"[\033[34m训练\033[0m] 开始批改")
+                _debug_print(config,"[\033[33m监测\033[0m] 申请的显存：" + str(torch.cuda.memory_allocated()/1e9) + "GB")
+                _debug_print(config,"[\033[33m监测\033[0m] 保留的显存：" + str(torch.cuda.memory_reserved()/1e9) + "GB")
 
                 verifier_probs = verifier.judge_ids_batch(
                     prompt_ids_list=[prompt_ids_planner] * len(group_samples),
@@ -786,6 +790,8 @@ def step(models: dict[str, Any], input: dict[str, Any], engine=None) -> dict[str
                     device=verifier_device,
                 )
                 _debug_print(config,"[\033[34m训练\033[0m] 完成批改")
+                _debug_print(config,"[\033[33m监测\033[0m] 申请的显存：" + str(torch.cuda.memory_allocated()/1e9) + "GB")
+                _debug_print(config,"[\033[33m监测\033[0m] 保留的显存：" + str(torch.cuda.memory_reserved()/1e9) + "GB")
 
             group_rewards: list[float] = []
             group_pass: list[int] = []
