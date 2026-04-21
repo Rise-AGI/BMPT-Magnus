@@ -278,6 +278,7 @@ def _sample_with_logprob(
     max_new_tokens: int,
     temperature: float,
     device: torch.device,
+    require_grad: bool = False,
 ) -> tuple[list[int], torch.Tensor]:
     if not prompt_ids:
         prompt_ids = [0]
@@ -303,15 +304,28 @@ def _sample_with_logprob(
     generated_ids = generated["sequences"][0].tolist()
     new_ids = generated_ids[len(prompt_ids):]
 
-    if "scores" in generated and len(generated["scores"]) > 0:
-        scores_stack = torch.stack(generated["scores"], dim=1)
-        logprobs = torch.log_softmax(scores_stack[0], dim=-1)
+    if not new_ids:
+        return new_ids, torch.zeros((), device=device, requires_grad=require_grad)
+
+    if require_grad:
+        full_ids = prompt_ids + new_ids
+        full_input_ids = torch.tensor([full_ids], dtype=torch.long, device=device)
+        outputs = model(full_input_ids)
+        logits = outputs.logits[:, len(prompt_ids) - 1 : len(full_ids) - 1, :]
+        logprobs = torch.log_softmax(logits[0], dim=-1)
         total_logprob = torch.zeros((), device=device)
         for idx, token_id in enumerate(new_ids):
-            if idx < logprobs.size(0):
-                total_logprob = total_logprob + logprobs[idx, token_id]
+            total_logprob = total_logprob + logprobs[idx, token_id]
     else:
-        total_logprob = torch.zeros((), device=device)
+        if "scores" in generated and len(generated["scores"]) > 0:
+            scores_stack = torch.stack(generated["scores"], dim=1)
+            logprobs = torch.log_softmax(scores_stack[0], dim=-1)
+            total_logprob = torch.zeros((), device=device)
+            for idx, token_id in enumerate(new_ids):
+                if idx < logprobs.size(0):
+                    total_logprob = total_logprob + logprobs[idx, token_id]
+        else:
+            total_logprob = torch.zeros((), device=device)
 
     return new_ids, total_logprob
 
@@ -530,6 +544,7 @@ def step(models: dict[str, Any], input: dict[str, Any]) -> dict[str, Any]:
                     max_new_tokens=builder_step_tokens,
                     temperature=builder_temp,
                     device=device,
+                    require_grad=True,
                 )
                 with torch.no_grad():
                     cand_logp_ref = _completion_logprob(
