@@ -32,16 +32,25 @@ def build_dataloader(
             drop_last=False,
         )
 
-    return DataLoader(
-        dataset,
-        batch_size=batch_size,
-        sampler=sampler,
-        shuffle=sampler is None and shuffle,
-        num_workers=2,
-        pin_memory=True,
-        drop_last=False,
-        collate_fn=lambda batch: _collate_fn(batch, pad_token_id),
-    )
+    loader_cfg = config.get("data", {}).get("loader", {})
+    num_workers = int(loader_cfg.get("num_workers", 8))
+
+    dataloader_kwargs: dict[str, Any] = {
+        "dataset": dataset,
+        "batch_size": batch_size,
+        "sampler": sampler,
+        "shuffle": sampler is None and shuffle,
+        "num_workers": num_workers,
+        "pin_memory": True,
+        "drop_last": True if sampler is not None else False,
+        "collate_fn": lambda batch: _collate_fn(batch, pad_token_id),
+    }
+
+    if num_workers > 0:
+        dataloader_kwargs["prefetch_factor"] = int(loader_cfg.get("prefetch_factor", 4))
+        dataloader_kwargs["persistent_workers"] = bool(loader_cfg.get("persistent_workers", True))
+
+    return DataLoader(**dataloader_kwargs)
 
 
 def _collate_fn(batch: list[dict[str, Any]], pad_token_id: int = 0) -> dict[str, Any]:

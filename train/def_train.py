@@ -390,6 +390,108 @@ def _sample_with_logprob(
     return new_ids, total_logprob
 
 
+def _sample_with_logprob_batch(
+    model: nn.Module,
+    tokenizer: Any,
+    prompt_ids: list[int],
+    num_samples: int,
+    max_new_tokens: int,
+    temperature: float,
+    device: torch.device,
+    require_grad: bool = False,
+) -> list[tuple[list[int], torch.Tensor]]:
+    if not prompt_ids:
+        prompt_ids = [0]
+
+    input_ids = torch.tensor([prompt_ids] * num_samples, dtype=torch.long, device=device)
+    attention_mask = torch.ones_like(input_ids, dtype=torch.long)
+
+    do_sample = temperature > 0
+
+    with torch.no_grad():
+        generated = model.generate(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            max_new_tokens=max_new_tokens,
+            do_sample=do_sample,
+            temperature=_safe_temp(temperature),
+            pad_token_id=int(tokenizer.pad_token_id),
+            eos_token_id=getattr(tokenizer, "eos_token_id", None),
+            return_dict_in_generate=True,
+            output_scores=True,
+        )
+
+    sequences = generated["sequences"]
+    scores = generated.get("scores", [])
+    prompt_len = len(prompt_ids)
+
+    results: list[tuple[list[int], torch.Tensor]] = []
+    for i in range(num_samples):
+        gen_ids = sequences[i].tolist()
+        new_ids = gen_ids[prompt_len:]
+
+        if not new_ids:
+            results.append((new_ids, torch.zeros((), device=device, requires_grad=require_grad)))
+            continue
+
+        if require_grad:
+            full_ids = prompt_ids + new_ids
+            full_input_ids = torch.tensor([full_ids], dtype=torch.long, device=device)
+            outputs = model(full_input_ids)
+            logits = outputs.logits[:, prompt_len - 1 : len(full_ids) - 1, :]
+            logprobs = torch.log_softmax(logits[0], dim=-1)
+            total_logprob = torch.zeros((), device=device)
+            for idx, token_id in enumerate(new_ids):
+                total_logprob = total_logprob + logprobs[idx, token_id]
+        else:
+            if scores and len(scores) > 0:
+                scores_stack = torch.stack(scores, dim=1)
+                logprobs = torch.log_softmax(scores_stack[i], dim=-1)
+                total_logprob = torch.zeros((), device=device)
+                for idx, token_id in enumerate(new_ids):
+                    if idx < logprobs.size(0):
+                        total_logprob = total_logprob + logprobs[idx, token_id]
+            else:
+                total_logprob = torch.zeros((), device=device)
+
+        results.append((new_ids, total_logprob))
+
+    return results
+
+
+def _completion_logprob_batch(
+    model: nn.Module,
+    prompt_ids_list: list[list[int]],
+    completion_ids_list: list[list[int]],
+    device: torch.device,
+) -> list[torch.Tensor]:
+    if not prompt_ids_list or not completion_ids_list:
+        return []
+
+    results: list[torch.Tensor] = []
+    model.eval()
+    with torch.no_grad():
+        for prompt_ids, completion_ids in zip(prompt_ids_list, completion_ids_list):
+            if not completion_ids:
+                results.append(torch.zeros((), device=device))
+                continue
+
+            context_ids = prompt_ids.copy() if prompt_ids else [0]
+            total_logprob = torch.zeros((), device=device)
+
+            for token_id in completion_ids:
+                input_ids = _to_single_batch_tensor(context_ids, device=device)
+                outputs = model(input_ids)
+                logits = outputs.logits[0, -1]
+                logprobs = torch.log_softmax(logits, dim=-1)
+                total_logprob = total_logprob + logprobs[token_id]
+                context_ids.append(token_id)
+
+            results.append(total_logprob)
+
+    return results
+
+
 def _completion_logprob(
     model: nn.Module,
     prompt_ids: list[int],
@@ -594,28 +696,27 @@ def step(models: dict[str, Any], input: dict[str, Any]) -> dict[str, Any]:
             group_samples: list[list[int]] = []
             cand_logp_refs: list[torch.Tensor] = []
 
-            for _ in range(max(builder_k, 1)):
-                cand_ids, cand_logp = _sample_with_logprob(
-                    model=builder,
-                    tokenizer=tokenizer,
-                    prompt_ids=step_prompt_ids,
-                    max_new_tokens=builder_step_tokens,
-                    temperature=builder_temp,
-                    device=device,
-                    require_grad=True,
-                )
-                group_logps.append(cand_logp)
-                group_samples.append(cand_ids)
+            batch_results = _sample_with_logprob_batch(
+                model=builder,
+                tokenizer=tokenizer,
+                prompt_ids=step_prompt_ids,
+                num_samples=max(builder_k, 1),
+                max_new_tokens=builder_step_tokens,
+                temperature=builder_temp,
+                device=device,
+                require_grad=True,
+            )
+
+            group_samples = [ids for ids, _ in batch_results]
+            group_logps = [logp for _, logp in batch_results]
 
             with torch.no_grad():
-                for cand_ids in group_samples:
-                    cand_logp_ref = _completion_logprob(
-                        model=builder_ref,
-                        prompt_ids=step_prompt_ids,
-                        completion_ids=cand_ids,
-                        device=device,
-                    )
-                    cand_logp_refs.append(cand_logp_ref)
+                cand_logp_refs = _completion_logprob_batch(
+                    model=builder_ref,
+                    prompt_ids_list=[step_prompt_ids] * len(group_samples),
+                    completion_ids_list=group_samples,
+                    device=device,
+                )
 
                 verifier_probs = verifier.judge_ids_batch(
                     prompt_ids_list=[prompt_ids_planner] * len(group_samples),
