@@ -176,6 +176,66 @@ class QwenProcessVerifier(nn.Module):
         text = self.tokenizer.decode(generated_tail.tolist(), skip_special_tokens=True)
         return self._decode_judgement(text)
 
+    def _pad_batch(
+        self,
+        composed_list: list[dict[str, torch.Tensor]],
+        device: torch.device,
+    ) -> tuple[torch.Tensor, torch.Tensor, list[int]]:
+        max_len = max(int(c["lengths"][0].item()) for c in composed_list)
+        batch_size = len(composed_list)
+        input_ids = torch.zeros(batch_size, max_len, dtype=torch.long, device=device)
+        attention_mask = torch.zeros(batch_size, max_len, dtype=torch.long, device=device)
+        prompt_lens = []
+        for i, c in enumerate(composed_list):
+            seq_len = int(c["lengths"][0].item())
+            input_ids[i, :seq_len] = c["input_ids"][0, :seq_len]
+            attention_mask[i, :seq_len] = c["attention_mask"][0, :seq_len]
+            prompt_lens.append(seq_len)
+        return input_ids, attention_mask, prompt_lens
+
+    def judge_ids_batch(
+        self,
+        prompt_ids_list: list[list[int]],
+        plan_step_ids_list: list[list[int]],
+        prefix_ids_list: list[list[int]],
+        candidate_ids_list: list[list[int]],
+        composer: Composer,
+        device: torch.device,
+    ) -> list[float]:
+        batch_size = len(prompt_ids_list)
+        if batch_size == 0:
+            return []
+        all_outputs = []
+        for i in range(batch_size):
+            composed = composer.compose(
+                outputs=[
+                    _to_single_batch_tensor(prompt_ids_list[i], device=device),
+                    _to_single_batch_tensor(plan_step_ids_list[i], device=device),
+                    _to_single_batch_tensor(prefix_ids_list[i], device=device),
+                    _to_single_batch_tensor(candidate_ids_list[i], device=device),
+                ]
+            )
+            all_outputs.append(composed)
+        input_ids_batch, attention_mask_batch, prompt_lens = self._pad_batch(all_outputs, device)
+        do_sample = self.temperature > 0
+        with torch.no_grad():
+            generated = self.model.generate(
+                input_ids=input_ids_batch,
+                attention_mask=attention_mask_batch,
+                max_new_tokens=self.max_new_tokens,
+                do_sample=do_sample,
+                temperature=_safe_temp(self.temperature),
+                pad_token_id=int(self.tokenizer.pad_token_id),
+                eos_token_id=getattr(self.tokenizer, "eos_token_id", None),
+            )
+        scores = []
+        for i in range(batch_size):
+            prompt_len = prompt_lens[i]
+            generated_tail = generated[i, prompt_len:]
+            text = self.tokenizer.decode(generated_tail.tolist(), skip_special_tokens=True)
+            scores.append(self._decode_judgement(text))
+        return scores
+
 
 def build_models_from_config(config: dict[str, Any], loader_fn: Any = None) -> dict[str, Any]:
     _ = loader_fn
@@ -531,10 +591,8 @@ def step(models: dict[str, Any], input: dict[str, Any]) -> dict[str, Any]:
             )
 
             group_logps: list[torch.Tensor] = []
-            group_rewards: list[float] = []
-            group_pass: list[int] = []
-            group_probs: list[float] = []
             group_samples: list[list[int]] = []
+            cand_logp_refs: list[torch.Tensor] = []
 
             for _ in range(max(builder_k, 1)):
                 cand_ids, cand_logp = _sample_with_logprob(
@@ -546,31 +604,39 @@ def step(models: dict[str, Any], input: dict[str, Any]) -> dict[str, Any]:
                     device=device,
                     require_grad=True,
                 )
-                with torch.no_grad():
+                group_logps.append(cand_logp)
+                group_samples.append(cand_ids)
+
+            with torch.no_grad():
+                for cand_ids in group_samples:
                     cand_logp_ref = _completion_logprob(
                         model=builder_ref,
                         prompt_ids=step_prompt_ids,
                         completion_ids=cand_ids,
                         device=device,
                     )
-                    verifier_prob = _verifier_prob(
-                        verifier=verifier,
-                        prompt_ids=prompt_ids_planner,
-                        plan_step_ids=plan_step_ids,
-                        prefix_ids=prefix_ids,
-                        candidate_ids=cand_ids,
-                        composer=verifier_composer,
-                        device=verifier_device,
-                    )
-                is_pass = 1 if float(verifier_prob.item()) >= builder_verifier_threshold else 0
+                    cand_logp_refs.append(cand_logp_ref)
+
+                verifier_probs = verifier.judge_ids_batch(
+                    prompt_ids_list=[prompt_ids_planner] * len(group_samples),
+                    plan_step_ids_list=[plan_step_ids] * len(group_samples),
+                    prefix_ids_list=[prefix_ids] * len(group_samples),
+                    candidate_ids_list=group_samples,
+                    composer=verifier_composer,
+                    device=verifier_device,
+                )
+
+            group_rewards: list[float] = []
+            group_pass: list[int] = []
+            group_probs: list[float] = []
+            for i, (cand_logp, cand_logp_ref) in enumerate(zip(group_logps, cand_logp_refs)):
+                verifier_prob = verifier_probs[i]
+                is_pass = 1 if verifier_prob >= builder_verifier_threshold else 0
                 kl_est = float((cand_logp.detach() - cand_logp_ref.detach()).item())
                 reward = float(is_pass) - builder_kl_beta * kl_est
-
-                group_logps.append(cand_logp)
                 group_rewards.append(reward)
                 group_pass.append(is_pass)
-                group_probs.append(float(verifier_prob.detach().item()))
-                group_samples.append(cand_ids)
+                group_probs.append(verifier_prob)
 
             reward_tensor = torch.tensor(group_rewards, device=device)
             advantage = reward_tensor - reward_tensor.mean()
