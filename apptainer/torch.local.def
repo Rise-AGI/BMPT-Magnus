@@ -8,7 +8,7 @@ From: base_pytorch.sif
 %post
     set -e
     apt-get update
-    apt-get install -y --no-install-recommends git
+    apt-get install -y --no-install-recommends git libaio-dev
     rm -rf /var/lib/apt/lists/*
 
     pip install --no-cache-dir -r /opt/brisk/requirements.common.txt -r /opt/brisk/requirements.torch.txt
