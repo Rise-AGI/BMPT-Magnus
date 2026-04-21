@@ -598,7 +598,25 @@ def _weighted_pick(indices: list[int], weights: list[float]) -> int:
     return indices[-1]
 
 
-def step(models: dict[str, Any], input: dict[str, Any]) -> dict[str, Any]:
+def step(models: dict[str, Any], input: dict[str, Any], engine=None) -> dict[str, Any]:
+    """
+    Step 函数训练 PBV (Planner-Builder-Verifier) 算法。
+    
+    Args:
+        models: 模型字典（包含 planner/builder/verifier 等）
+        input: 输入字典（包含 batch、config、global_step 等）
+        engine: DeepSpeed Engine（被训练的模型）。如果提供，step 内部会多次调用
+                engine.backward() 并在完成后返回 backward_done=True
+    
+    Returns:
+        dict: {
+            "loss": 标量值（无计算图）或无，
+            "backward_done": True（如果 engine 提供且已内部 backward），
+            "step_done": False,
+            "metrics": dict 训练指标,
+            "aux": dict 辅助输出,
+        }
+    """
     config = input.get("_merged_config") or {}
     algorithm_cfg = config.get("algorithm") or {}
     schedule_cfg = algorithm_cfg.get("training_schedule") or {}
@@ -780,7 +798,13 @@ def step(models: dict[str, Any], input: dict[str, Any]) -> dict[str, Any]:
             advantage = reward_tensor - reward_tensor.mean()
             logp_tensor = torch.stack(group_logps)
             if float(advantage.abs().sum().item()) > 0:
-                builder_losses.append(-(advantage.detach() * logp_tensor).mean())
+                loss_builder = -(advantage.detach() * logp_tensor).mean()
+                # 关键修改：如果有 engine，立即 backward 释放计算图
+                if engine is not None:
+                    engine.backward(loss_builder)
+                else:
+                    # 向后兼容：如果没有 engine，累积到列表
+                    builder_losses.append(loss_builder)
 
             pass_rate = float(sum(group_pass)) / float(len(group_pass))
             pass_rate_all.append(pass_rate)
@@ -832,24 +856,45 @@ def step(models: dict[str, Any], input: dict[str, Any]) -> dict[str, Any]:
                 returns_tensor = torch.tensor(planner_returns[:upper], device=device)
                 centered = returns_tensor - returns_tensor.mean()
                 logp_tensor = torch.stack(planner_step_logps[:upper])
-                planner_losses.append(-(centered.detach() * logp_tensor).mean())
+                loss_planner = -(centered.detach() * logp_tensor).mean()
+                # 关键修改：如果有 engine，立即 backward 释放计算图
+                if engine is not None:
+                    engine.backward(loss_planner)
+                else:
+                    # 向后兼容：如果没有 engine，累积到列表
+                    planner_losses.append(loss_planner)
 
         if phase == "builder":
             continue
 
-    if phase == "planner":
-        if planner_losses:
-            loss = torch.stack(planner_losses).mean()
+    # 构造返回值
+    if engine is not None:
+        # 新契约：engine 已内部处理所有 backward，返回标量 loss
+        if phase == "planner":
+            loss_scalar = sum(planner_losses) / len(planner_losses) if planner_losses else 0.0
         else:
-            loss = torch.zeros((), device=device, requires_grad=True)
+            loss_scalar = sum(builder_losses) / len(builder_losses) if builder_losses else 0.0
+        backward_done = True
     else:
-        if builder_losses:
-            loss = torch.stack(builder_losses).mean()
+        # 向后兼容：累积 losses，返回 tensor
+        if phase == "planner":
+            if planner_losses:
+                loss = torch.stack(planner_losses).mean()
+                loss_scalar = float(loss.detach().item())
+            else:
+                loss = torch.zeros((), device=device, requires_grad=True)
+                loss_scalar = 0.0
         else:
-            loss = torch.zeros((), device=device, requires_grad=True)
+            if builder_losses:
+                loss = torch.stack(builder_losses).mean()
+                loss_scalar = float(loss.detach().item())
+            else:
+                loss = torch.zeros((), device=device, requires_grad=True)
+                loss_scalar = 0.0
+        backward_done = False
 
     metrics = {
-        "loss/total": float(loss.detach().item()),
+        "loss/total": loss_scalar,
         "phase/is_planner": 1.0 if phase == "planner" else 0.0,
         "phase/is_builder": 1.0 if phase == "builder" else 0.0,
         "reward/step_pass": float(sum(rewards_all) / len(rewards_all)) if rewards_all else 0.0,
@@ -861,7 +906,18 @@ def step(models: dict[str, Any], input: dict[str, Any]) -> dict[str, Any]:
         "selected_steps": selected_steps_text,
         "phase": phase,
     }
-    return {"loss": loss, "metrics": metrics, "aux": aux}
+    
+    if engine is not None:
+        return {
+            "loss": None,  # 标量或无，无计算图
+            "backward_done": True,
+            "step_done": False,
+            "metrics": metrics,
+            "aux": aux,
+        }
+    else:
+        # 向后兼容
+        return {"loss": loss, "metrics": metrics, "aux": aux}
 
 
 def evaluate(models: dict[str, Any], input: dict[str, Any]) -> dict[str, Any]:

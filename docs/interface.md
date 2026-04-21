@@ -89,15 +89,49 @@
 - 返回的 DataLoader 每个批次为 `dict[str, Any]`，包含 `{key}_input_ids` 字段
 - 支持变长序列动态 padding：batch 内 `*_input_ids` 自动 pad 到最大长度
 
-## 7. `step(models, input)` 返回协议
+## 7. `step(models, input, engine=None)` 返回协议
 
-`step` 返回字典，至少包含：
+`step` 函数新契约，支持两种模式：
 
-- `loss`: `torch.Tensor`
+### 模式 A：Engine 委托模式（推荐用于复杂训练逻辑）
+
+当传入 `engine` 参数（DeepSpeed Engine）时，`step` 内部负责多次调用 `engine.backward()`，并返回 `backward_done=True`。
+
+返回字典包含：
+
+- `loss`: `None` 或标量值（**无计算图**，仅用于日志）
+- `backward_done`: `True`（标记 step 内部已完成 backward）
+- `step_done`: `False`（标记 step 未处理 optimizer step）
 - `metrics`: `dict[str, float]`
 - `aux`: `dict[str, Any]`（可选扩展）
 
-说明：训练框架会在日志阶段为 `metrics` 追加 `perf/*` 指标（如滑动窗口 step 耗时与吞吐），并复用同一 metrics 输出通道。
+示例：
+
+```python
+def step(models, input, engine=None):
+    # ... 计算多个 loss_i ...
+    for loss_i in loss_list:
+        # 每次 backward 后计算图立即释放，激活显存不累积
+        engine.backward(loss_i)
+    
+    return {
+        "loss": None,  # 或标量值用于日志
+        "backward_done": True,
+        "step_done": False,
+        "metrics": {"loss/total": sum(loss_values) / len(loss_values)},
+        "aux": {},
+    }
+```
+
+### 模式 B：传统模式（向后兼容）
+
+当不传入 `engine` 参数时，保持原有契约。
+
+返回字典包含：
+
+- `loss`: `torch.Tensor`（**含计算图**）
+- `metrics`: `dict[str, float]`
+- `aux`: `dict[str, Any]`（可选扩展）
 
 示例：
 
@@ -109,7 +143,17 @@ return {
 }
 ```
 
-## 8. `step(models, input)` 输入格式
+说明：训练框架会在日志阶段为 `metrics` 追加 `perf/*` 指标（如滑动窗口 step 耗时与吞吐），并复用同一 metrics 输出通道。外层循环会根据 `backward_done` 标记判断是否调用 `engine.backward()`。
+
+## 8. `step(models, input, engine=None)` 输入格式
+
+### 位置参数
+
+- `models`: `dict[str, torch.nn.Module]` - 模型字典（如 `planner`, `builder`, `verifier` 等）
+- `input`: `dict[str, Any]` - 输入数据字典
+- `engine`: `DeepSpeedEngine | None` - DeepSpeed 引擎（可选）。如果提供，`step` 内部可多次调用 `engine.backward()` 并返回 `backward_done=True`
+
+### input 字典内容
 
 `input["batch"]` 包含预处理后的数据：
 
