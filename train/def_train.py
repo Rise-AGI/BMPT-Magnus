@@ -684,7 +684,7 @@ def step(models: dict[str, Any], input: dict[str, Any]) -> dict[str, Any]:
         )
 
 
-        _debug_print(config,"\033[34m[训练] 开始采样 Planner\033[0m")
+        _debug_print(config,"[\033[34m训练\033[0m] 开始采样 Planner")
 
         plan_ids, _ = _sample_with_logprob(
             model=planner,
@@ -699,7 +699,7 @@ def step(models: dict[str, Any], input: dict[str, Any]) -> dict[str, Any]:
         plan_texts.append(plan_text)
 
 
-        _debug_print(config,"\033[34m[训练] 完成采样 Planner\033[0m")
+        _debug_print(config,"[\033[34m训练\033[0m] 完成采样 Planner")
 
         if not plan_steps:
             continue
@@ -720,7 +720,10 @@ def step(models: dict[str, Any], input: dict[str, Any]) -> dict[str, Any]:
             group_samples: list[list[int]] = []
             cand_logp_refs: list[torch.Tensor] = []
 
-            _debug_print(config,"\033[34m[训练] 开始采样 Builder\033[0m")
+            _debug_print(config,"[\033[34m训练\033[0m] 开始采样 Builder")
+
+            _debug_print(config,"[\033[33m监测\033[0m] 申请的显存：{torch.cuda.memory_allocated()/1e9:.2f}GB")
+            _debug_print(config,"[\033[33m监测\033[0m] 保留的显存：{torch.cuda.memory_reserved()/1e9:.2f}GB")
 
 
             batch_results = _sample_with_logprob_batch(
@@ -734,7 +737,7 @@ def step(models: dict[str, Any], input: dict[str, Any]) -> dict[str, Any]:
                 require_grad=True,
             )
 
-            _debug_print(config,"\033[34m[训练] 完成采样 Builder\033[0m")
+            _debug_print(config,"[\033[34m训练\033[0m] 完成采样 Builder")
 
 
             group_samples = [ids for ids, _ in batch_results]
@@ -748,6 +751,9 @@ def step(models: dict[str, Any], input: dict[str, Any]) -> dict[str, Any]:
                     device=device,
                 )
 
+
+                _debug_print(config,"[\033[34m训练\033[0m] 开始批改")
+
                 verifier_probs = verifier.judge_ids_batch(
                     prompt_ids_list=[prompt_ids_planner] * len(group_samples),
                     plan_step_ids_list=[plan_step_ids] * len(group_samples),
@@ -756,6 +762,7 @@ def step(models: dict[str, Any], input: dict[str, Any]) -> dict[str, Any]:
                     composer=verifier_composer,
                     device=verifier_device,
                 )
+                _debug_print(config,"[\033[34m训练\033[0m] 完成批改")
 
             group_rewards: list[float] = []
             group_pass: list[int] = []
