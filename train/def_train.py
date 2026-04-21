@@ -718,15 +718,20 @@ def step(models: dict[str, Any], input: dict[str, Any], engine=None) -> dict[str
 
 
         _debug_print(config,"[\033[34m训练\033[0m] 完成采样 Planner")
-
-        if not plan_steps:
-            continue
+        _debug_print(config,"[\033[34m训练\033[0m] "+plan_text)
 
         prefix_ids: list[int] = []
         step_rewards_for_planner: list[float] = []
         local_selected_text: list[str] = []
 
-        for plan_step in plan_steps:
+        for step_idx in range(max(max_plan_steps, 0)):
+            if step_idx >= len(plan_steps):
+                if engine is not None:
+                    loss_builder = torch.zeros((), device=device, requires_grad=True)
+                    engine.backward(loss_builder)
+                continue
+
+            plan_step = plan_steps[step_idx]
             plan_step_ids = _tokenize_text(tokenizer, plan_step, max_len=planner_step_token_budget)
             step_prompt_ids = _compose_ids(
                 composer=builder_composer,
@@ -797,13 +802,16 @@ def step(models: dict[str, Any], input: dict[str, Any], engine=None) -> dict[str
             reward_tensor = torch.tensor(group_rewards, device=device)
             advantage = reward_tensor - reward_tensor.mean()
             logp_tensor = torch.stack(group_logps)
-            if float(advantage.abs().sum().item()) > 0:
+            has_advantage = float(advantage.abs().sum().item()) > 0
+            if has_advantage:
                 loss_builder = -(advantage.detach() * logp_tensor).mean()
-                # 关键修改：如果有 engine，立即 backward 释放计算图
-                if engine is not None:
-                    engine.backward(loss_builder)
-                else:
-                    # 向后兼容：如果没有 engine，累积到列表
+            else:
+                loss_builder = torch.zeros((), device=device, requires_grad=True)
+
+            if engine is not None:
+                engine.backward(loss_builder)
+            else:
+                if has_advantage:
                     builder_losses.append(loss_builder)
 
             pass_rate = float(sum(group_pass)) / float(len(group_pass))
