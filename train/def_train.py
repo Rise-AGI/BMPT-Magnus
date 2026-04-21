@@ -249,6 +249,11 @@ def build_models_from_config(config: dict[str, Any], loader_fn: Any = None) -> d
     runtime_cfg = config.get("runtime") or {}
     attn_implementation = runtime_cfg.get("attn_implementation", "auto")
 
+    algorithm_cfg = config.get("algorithm") or {}
+    schedule_cfg = algorithm_cfg.get("training_schedule") or {}
+    planner_trainable = bool(planner_cfg.get("trainable", False))
+    builder_trainable = bool(builder_cfg.get("trainable", False))
+
     tokenizer_path = str(
         verifier_cfg.get("path")
         or planner_cfg.get("path")
@@ -260,18 +265,12 @@ def build_models_from_config(config: dict[str, Any], loader_fn: Any = None) -> d
 
     tokenizer = _load_tokenizer(tokenizer_path)
 
-    planner = _load_model(
-        str(planner_cfg.get("path", tokenizer_path)),
-        attn_implementation=attn_implementation,
-    )
-    builder = _load_model(
-        str(builder_cfg.get("path", tokenizer_path)),
-        attn_implementation=attn_implementation,
-    )
-    verifier_model = _load_model(
-        str(verifier_cfg.get("path", tokenizer_path)),
-        attn_implementation=attn_implementation,
-    )
+    planner_path = str(planner_cfg.get("path", tokenizer_path))
+    builder_path = str(builder_cfg.get("path", tokenizer_path))
+    verifier_path = str(verifier_cfg.get("path", tokenizer_path))
+
+    builder = _load_model(builder_path, attn_implementation=attn_implementation)
+    verifier_model = _load_model(verifier_path, attn_implementation=attn_implementation)
     verifier = QwenProcessVerifier(
         model=verifier_model,
         tokenizer=tokenizer,
@@ -281,25 +280,43 @@ def build_models_from_config(config: dict[str, Any], loader_fn: Any = None) -> d
     verifier.requires_grad_(False)
     verifier.eval()
 
-    planner_ref = copy.deepcopy(planner)
-    builder_ref = copy.deepcopy(builder)
-    planner_ref.requires_grad_(False)
-    builder_ref.requires_grad_(False)
+    # 冻结模型共享：相同 checkpoint 的冻结模型复用同一份权重，节省显存
+    if not planner_trainable and planner_path == verifier_path:
+        planner = verifier_model
+    else:
+        planner = _load_model(planner_path, attn_implementation=attn_implementation)
+
+    if not builder_trainable:
+        builder.requires_grad_(False)
+        builder_ref = builder
+    elif builder_path == verifier_path:
+        builder_ref = verifier_model
+    else:
+        builder_ref = copy.deepcopy(builder)
+        builder_ref.requires_grad_(False)
+
+    planner_steps = int(schedule_cfg.get("planner_steps", 1))
+    if planner_steps > 0 and planner_trainable:
+        planner_ref = copy.deepcopy(planner)
+        planner_ref.requires_grad_(False)
+    else:
+        planner_ref = planner
+
+    if not planner_trainable:
+        planner.requires_grad_(False)
 
     enable_gradient_ckpt = bool(runtime_cfg.get("gradient_checkpointing", False))
     if enable_gradient_ckpt:
-        for model in [planner, builder]:
+        trainable_models = []
+        if planner_trainable:
+            trainable_models.append(planner)
+        if builder_trainable:
+            trainable_models.append(builder)
+        for model in trainable_models:
             if hasattr(model, "config") and hasattr(model.config, "use_cache"):
                 model.config.use_cache = False
             if hasattr(model, "gradient_checkpointing_enable"):
                 model.gradient_checkpointing_enable()
-
-    planner_trainable = bool(planner_cfg.get("trainable", False))
-    builder_trainable = bool(builder_cfg.get("trainable", False))
-    if not planner_trainable:
-        planner.requires_grad_(False)
-    if not builder_trainable:
-        builder.requires_grad_(False)
 
     return {
         "planner": planner,

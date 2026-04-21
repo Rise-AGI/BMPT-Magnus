@@ -50,8 +50,8 @@ train:
   train_target_model: builder
   control_mode: step
   max_steps: 6000
-  per_device_batch_size: 2
-  gradient_accumulation_steps: 8
+  per_device_batch_size: 1
+  gradient_accumulation_steps: 16
   mixed_precision: bf16
   grad_clip_norm: 1.0
   log_every_steps: 10
