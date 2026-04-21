@@ -9,7 +9,7 @@ algorithm:
     planner_steps: 0
     builder_steps: 2
   planner:
-    max_plan_tokens: 160
+    max_plan_tokens: 240
     max_plan_steps: 12
     step_token_budget: 80
     gamma: 0.95
@@ -17,7 +17,7 @@ algorithm:
     reward_mix_final: 0.0
   builder:
     k_samples: 8
-    step_max_tokens: 96
+    step_max_tokens: 240
     temperature: 0.95
     kl_beta: 0.02
     pass_select_tau: 0.7
