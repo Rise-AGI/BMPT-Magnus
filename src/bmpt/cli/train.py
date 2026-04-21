@@ -1101,9 +1101,13 @@ def _run_deepspeed_backend(
             step_start_time = time.perf_counter()
             payload = {"batch": device_batch, "global_step": idx}
             payload.update(static_step_input)
-            output = step_fn(models, payload)
-            loss = output["loss"]
-            ds_engine.backward(loss)
+            output = step_fn(models, payload, ds_engine)  # 传入 engine
+            
+            # 关键修改：根据 backward_done 判断是否调用 backward
+            if not output.get("backward_done", False):
+                loss = output["loss"]
+                ds_engine.backward(loss)
+            
             ds_engine.step()
             step_time_sec = time.perf_counter() - step_start_time
 
