@@ -16,7 +16,7 @@ algorithm:
     temperature: 0.8
     reward_mix_final: 0.0
   builder:
-    k_samples: 8
+    k_samples: 4
     step_max_tokens: 240
     temperature: 0.95
     kl_beta: 0.02
