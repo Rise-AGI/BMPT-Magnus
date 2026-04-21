@@ -10,6 +10,7 @@ import torch
 from torch import nn
 
 from bmpt.util import Composer
+from bmpt.cli.train import _debug_print
 
 try:
     import yaml
@@ -682,6 +683,9 @@ def step(models: dict[str, Any], input: dict[str, Any]) -> dict[str, Any]:
             max_len=max_prompt_tokens,
         )
 
+
+        _debug_print(config,"\033[34m[训练] 开始采样 Planner\033[0m")
+
         plan_ids, _ = _sample_with_logprob(
             model=planner,
             tokenizer=tokenizer,
@@ -693,6 +697,9 @@ def step(models: dict[str, Any], input: dict[str, Any]) -> dict[str, Any]:
         plan_text = _decode_text(tokenizer, plan_ids)
         plan_steps = _split_plan_steps(plan_text, max_steps=max_plan_steps)
         plan_texts.append(plan_text)
+
+
+        _debug_print(config,"\033[34m[训练] 完成采样 Planner\033[0m")
 
         if not plan_steps:
             continue
@@ -713,6 +720,9 @@ def step(models: dict[str, Any], input: dict[str, Any]) -> dict[str, Any]:
             group_samples: list[list[int]] = []
             cand_logp_refs: list[torch.Tensor] = []
 
+            _debug_print(config,"\033[34m[训练] 开始采样 Builder\033[0m")
+
+
             batch_results = _sample_with_logprob_batch(
                 model=builder,
                 tokenizer=tokenizer,
@@ -723,6 +733,9 @@ def step(models: dict[str, Any], input: dict[str, Any]) -> dict[str, Any]:
                 device=device,
                 require_grad=True,
             )
+
+            _debug_print(config,"\033[34m[训练] 完成采样 Builder\033[0m")
+
 
             group_samples = [ids for ids, _ in batch_results]
             group_logps = [logp for _, logp in batch_results]
