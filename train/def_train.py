@@ -722,8 +722,8 @@ def step(models: dict[str, Any], input: dict[str, Any]) -> dict[str, Any]:
 
             _debug_print(config,"[\033[34m训练\033[0m] 开始采样 Builder")
 
-            _debug_print(config,f"[\033[33m监测\033[0m] 申请的显存：{torch.cuda.memory_allocated()/1e9:.2f}GB")
-            _debug_print(config,f"[\033[33m监测\033[0m] 保留的显存：{torch.cuda.memory_preserved)/1e9:.2f}GB")
+            _debug_print(config,"[\033[33m监测\033[0m] 申请的显存：" + str(torch.cuda.memory_allocated()/1e9) + "GB")
+            _debug_print(config,"[\033[33m监测\033[0m] 保留的显存：" + str(torch.cuda.memory_reserved()/1e9) + "GB")
 
 
             batch_results = _sample_with_logprob_batch(
