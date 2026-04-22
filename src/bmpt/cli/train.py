@@ -19,7 +19,6 @@ from typing import Any, Callable, cast
 
 import torch
 import torch.distributed as dist
-from torch.nn.parallel import DistributedDataParallel
 
 from bmpt.core.distributed import (
     cleanup_distributed,
@@ -27,12 +26,9 @@ from bmpt.core.distributed import (
     is_main_process,
     move_to_device,
     reduce_metrics,
-    wrap_models_for_ddp,
 )
 from bmpt.core.async_checkpoint import AsyncCheckpointWriter
-from bmpt.core.engine import TrainingEngine
 from bmpt.core.logging import MetricsEmitter, StepMetricsLogger
-from bmpt.core.optim import build_optimizer, build_scheduler
 from bmpt.util import build_composers_from_config
 
 
@@ -71,12 +67,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=int,
         default=None,
         help="Optional max training steps override",
-    )
-    parser.add_argument(
-        "--backend",
-        choices=["pytorch", "deepspeed"],
-        default=None,
-        help="Optional training backend override",
     )
     parser.add_argument(
         "--save-final",
@@ -335,14 +325,6 @@ def _iter_training_batches(
             global_step += 1
 
 
-def _resolve_training_backend(
-    config: dict[str, Any], backend_override: str | None
-) -> str:
-    if backend_override is not None:
-        return backend_override
-    return str(config.get("runtime", {}).get("training_backend", "pytorch"))
-
-
 def _checkpoint_settings(config: dict[str, Any]) -> tuple[int, Path]:
     train_cfg = config.get("train", {})
     every = int(train_cfg.get("checkpoint_every_steps", 0))
@@ -352,8 +334,6 @@ def _checkpoint_settings(config: dict[str, Any]) -> tuple[int, Path]:
 
 
 def _unwrap_model(model: torch.nn.Module) -> torch.nn.Module:
-    if isinstance(model, DistributedDataParallel):
-        return cast(torch.nn.Module, model.module)
     return model
 
 
@@ -390,7 +370,7 @@ def _extract_resume_config(config: dict[str, Any]) -> dict[str, Any]:
             "mixed_precision": str(train_cfg.get("mixed_precision", "bf16")),
         },
         "runtime": {
-            "training_backend": str(runtime_cfg.get("training_backend", "pytorch"))
+            "deepspeed_config_path": runtime_cfg.get("deepspeed_config_path")
         },
     }
 
@@ -582,12 +562,12 @@ def _apply_or_report_resume_config(
         emit_logs,
     )
 
-    old_backend = config.get("runtime", {}).get("training_backend")
-    new_backend = resume_cfg.get("runtime", {}).get("training_backend")
+    old_deepspeed_path = config.get("runtime", {}).get("deepspeed_config_path")
+    new_deepspeed_path = resume_cfg.get("runtime", {}).get("deepspeed_config_path")
     _log_resume_diff(
-        "runtime.training_backend",
-        old_backend,
-        new_backend,
+        "runtime.deepspeed_config_path",
+        old_deepspeed_path,
+        new_deepspeed_path,
         should_override,
         emit_logs,
     )
@@ -599,7 +579,7 @@ def _apply_or_report_resume_config(
     config["scheduler"] = new_scheduler
     config.setdefault("train", {})["gradient_accumulation_steps"] = new_grad_accum
     config.setdefault("train", {})["mixed_precision"] = new_precision
-    config.setdefault("runtime", {})["training_backend"] = new_backend
+    config.setdefault("runtime", {})["deepspeed_config_path"] = new_deepspeed_path
 
 
 def _restore_model_states(
@@ -615,48 +595,6 @@ def _restore_model_states(
             continue
         target_model = _unwrap_model(model)
         target_model.load_state_dict(model_state, strict=strict)
-
-
-def _restore_pytorch_state(
-    *,
-    payload: dict[str, Any],
-    models: dict[str, torch.nn.Module],
-    optimizer: torch.optim.Optimizer,
-    scheduler: torch.optim.lr_scheduler._LRScheduler
-    | torch.optim.lr_scheduler.LambdaLR
-    | None,
-    engine: TrainingEngine,
-    mode: str,
-    strict: bool,
-) -> int:
-    model_states = payload.get("models")
-    if not isinstance(model_states, dict):
-        raise KeyError("Checkpoint missing `models` dict")
-    _restore_model_states(models, model_states, strict=strict)
-
-    if mode == "weights_only":
-        return 0
-
-    optimizer_state = payload.get("optimizer")
-    if optimizer_state is None:
-        raise KeyError("Checkpoint missing `optimizer` state for full resume")
-    optimizer.load_state_dict(optimizer_state)
-
-    scheduler_state = payload.get("scheduler")
-    if scheduler is not None and scheduler_state is not None:
-        scheduler.load_state_dict(scheduler_state)
-
-    global_step = int(payload.get("global_step", 0))
-    engine_state = payload.get("engine_state")
-    if isinstance(engine_state, dict):
-        engine.state.micro_step = int(engine_state.get("micro_step", global_step))
-        engine.state.optimizer_step = int(
-            engine_state.get("optimizer_step", engine.state.optimizer_step)
-        )
-    else:
-        engine.state.micro_step = global_step
-    engine.state.global_step = int(engine.state.optimizer_step)
-    return global_step
 
 
 def _restore_deepspeed_state(
@@ -839,159 +777,6 @@ def _run_validation(
 
     if is_main_process(dist_ctx):
         print(f"[{phase}] eval_metrics={metrics}")
-
-
-def _run_pytorch_backend(
-    models: dict[str, torch.nn.Module],
-    data_iterable: Any,
-    config: dict[str, Any],
-    config_path: str | Path,
-    dist_ctx: Any,
-    composers: dict[str, Any],
-    total_steps: int,
-    save_final: bool,
-    step_fn: Callable[..., Any],
-    load_ckpt_payload: dict[str, Any] | None,
-    load_ckpt_mode: str,
-    load_ckpt_strict: bool,
-    tokenizer: Any | None = None,
-) -> None:
-    train_cfg = config.get("train", {})
-    metrics_cfg = config.get("runtime", {}).get("metrics", {})
-    perf_logger = StepMetricsLogger.from_config(metrics_cfg)
-    metrics_emitter = MetricsEmitter.from_config(metrics_cfg)
-
-    target_model_name = train_cfg.get("train_target_model")
-    if target_model_name is not None:
-        if target_model_name not in models:
-            raise ValueError(f"train_target_model '{target_model_name}' not found in models")
-        optimizer_models = {target_model_name: models[target_model_name]}
-    else:
-        optimizer_models = models
-
-    optimizer = build_optimizer(optimizer_models, config)
-    scheduler = build_scheduler(optimizer, config, total_training_steps=total_steps)
-    engine = TrainingEngine(
-        step_fn=step_fn,
-        optimizer=optimizer,
-        scheduler=scheduler,
-        grad_accum_steps=int(train_cfg.get("gradient_accumulation_steps", 1)),
-        grad_clip_norm=float(train_cfg.get("grad_clip_norm", 1.0)),
-    )
-
-    log_every = int(train_cfg.get("log_every_steps", 10))
-    checkpoint_every, checkpoint_dir = _checkpoint_settings(config)
-    writer = AsyncCheckpointWriter(max_pending=1)
-    resume_start_step = 0
-    if load_ckpt_payload is not None:
-        resume_start_step = _restore_pytorch_state(
-            payload=load_ckpt_payload,
-            models=models,
-            optimizer=optimizer,
-            scheduler=scheduler,
-            engine=engine,
-            mode=load_ckpt_mode,
-            strict=load_ckpt_strict,
-        )
-        if _is_rank0():
-            print(
-                f"[ckpt] resumed from step={resume_start_step} mode={load_ckpt_mode}",
-                flush=True,
-            )
-
-    resume_config = _extract_resume_config(config)
-    last_step = resume_start_step
-    static_step_input = {
-        "config_path": str(config_path),
-        "_cached_config": config,
-        "_merged_config": config,
-        "composers": composers,
-        "_debug": _is_debug_enabled(config),
-        "tokenizer": tokenizer,
-    }
-    try:
-        for idx, batch in _iter_training_batches(
-            data_iterable, config, total_steps, start_step=resume_start_step
-        ):
-            current_step = idx + 1
-            last_step = current_step
-
-            device_batch = move_to_device(batch, dist_ctx.device)
-            step_start_time = time.perf_counter()
-            output = engine.run_micro_step(
-                models=models,
-                batch=device_batch,
-                extra_input=static_step_input,
-            )
-            step_time_sec = time.perf_counter() - step_start_time
-
-            perf_metrics = perf_logger.update(
-                step_time_sec=step_time_sec,
-                batch=device_batch,
-                device=dist_ctx.device,
-                sync_global=(current_step % log_every == 0),
-            )
-            output["metrics"].update(perf_metrics)
-
-            if current_step % log_every == 0:
-                reduced = reduce_metrics(output["metrics"], dist_ctx)
-                if is_main_process(dist_ctx):
-                    metrics_emitter.emit(step_id=current_step, metrics=reduced)
-
-            if checkpoint_every > 0 and current_step % checkpoint_every == 0:
-                save_path = _checkpoint_file_path(
-                    checkpoint_dir,
-                    f"step_{current_step}",
-                    rank=dist_ctx.rank,
-                    world_size=dist_ctx.world_size,
-                )
-                payload = _build_checkpoint_payload(
-                    backend="pytorch",
-                    global_step=current_step,
-                    models=models,
-                    optimizer=optimizer,
-                    scheduler=scheduler,
-                    resume_config=resume_config,
-                    rank=dist_ctx.rank,
-                    world_size=dist_ctx.world_size,
-                    engine_state={
-                        "micro_step": int(engine.state.micro_step),
-                        "optimizer_step": int(engine.state.optimizer_step),
-                    },
-                )
-                writer.enqueue(save_path, payload)
-                if is_main_process(dist_ctx):
-                    print(f"checkpoint_enqueued={save_path}")
-
-        if save_final:
-            final_step = max(last_step, resume_start_step, 1)
-            save_path = _checkpoint_file_path(
-                checkpoint_dir,
-                "latest",
-                rank=dist_ctx.rank,
-                world_size=dist_ctx.world_size,
-            )
-            payload = _build_checkpoint_payload(
-                backend="pytorch",
-                global_step=final_step,
-                models=models,
-                optimizer=optimizer,
-                scheduler=scheduler,
-                resume_config=resume_config,
-                rank=dist_ctx.rank,
-                world_size=dist_ctx.world_size,
-                engine_state={
-                    "micro_step": int(engine.state.micro_step),
-                    "optimizer_step": int(engine.state.optimizer_step),
-                },
-            )
-            writer.enqueue(save_path, payload)
-            if is_main_process(dist_ctx):
-                print(f"checkpoint_enqueued={save_path}")
-
-        writer.flush()
-    finally:
-        writer.close()
 
 
 def _run_deepspeed_backend(
@@ -1191,7 +976,6 @@ def run_train(
     loader: str,
     def_train_module: str,
     max_steps_override: int | None = None,
-    backend_override: str | None = None,
     attn_implementation_override: str | None = None,
     save_final: bool = False,
     debug_override: bool = False,
@@ -1250,25 +1034,11 @@ def run_train(
             print(f"[bmpt] processed sources: {list(processed_data.keys())}", flush=True)
 
         models = build_models_from_config_fn(config, loader_fn=loader_fn)
-        training_backend = _resolve_training_backend(config, backend_override)
-        if training_backend == "pytorch":
-            models = wrap_models_for_ddp(models, dist_ctx)
 
         val_records = processed_data.get("val")
         val_iterable = None
         if val_records is not None:
             val_iterable = build_dataloader(val_records, config, dist_ctx, shuffle=False, pad_token_id=pad_token_id)
-            if training_backend != "deepspeed":
-                _run_validation(
-                    models=models,
-                    val_iterable=val_iterable,
-                    config=config,
-                    config_path=config_path,
-                    dist_ctx=dist_ctx,
-                    composers=composers,
-                    evaluate_fn=evaluate_fn,
-                    phase="before_train",
-                )
 
         train_records = processed_data.get("train")
         if train_records is None:
@@ -1278,40 +1048,23 @@ def run_train(
             config, max_steps_override, data_iterable
         )
 
-        if training_backend == "deepspeed":
-            _run_deepspeed_backend(
-                models=models,
-                data_iterable=data_iterable,
-                before_train_val_iterable=val_iterable,
-                config=config,
-                config_path=config_path,
-                dist_ctx=dist_ctx,
-                composers=composers,
-                total_steps=total_steps,
-                save_final=save_final,
-                step_fn=step_fn,
-                evaluate_fn=evaluate_fn,
-                load_ckpt_payload=load_ckpt_payload,
-                load_ckpt_mode=load_ckpt_mode,
-                load_ckpt_strict=load_ckpt_strict,
-                tokenizer=tokenizer,
-            )
-        else:
-            _run_pytorch_backend(
-                models=models,
-                data_iterable=data_iterable,
-                config=config,
-                config_path=config_path,
-                dist_ctx=dist_ctx,
-                composers=composers,
-                total_steps=total_steps,
-                save_final=save_final,
-                step_fn=step_fn,
-                load_ckpt_payload=load_ckpt_payload,
-                load_ckpt_mode=load_ckpt_mode,
-                load_ckpt_strict=load_ckpt_strict,
-                tokenizer=tokenizer,
-            )
+        _run_deepspeed_backend(
+            models=models,
+            data_iterable=data_iterable,
+            before_train_val_iterable=val_iterable,
+            config=config,
+            config_path=config_path,
+            dist_ctx=dist_ctx,
+            composers=composers,
+            total_steps=total_steps,
+            save_final=save_final,
+            step_fn=step_fn,
+            evaluate_fn=evaluate_fn,
+            load_ckpt_payload=load_ckpt_payload,
+            load_ckpt_mode=load_ckpt_mode,
+            load_ckpt_strict=load_ckpt_strict,
+            tokenizer=tokenizer,
+        )
 
         if val_records is not None:
             val_iterable = build_dataloader(val_records, config, dist_ctx, shuffle=False, pad_token_id=pad_token_id)
@@ -1346,8 +1099,6 @@ def _build_worker_args(args: argparse.Namespace) -> list[str]:
     ]
     if args.max_steps is not None:
         worker_args.extend(["--max-steps", str(args.max_steps)])
-    if args.backend is not None:
-        worker_args.extend(["--backend", args.backend])
     if args.save_final:
         worker_args.append("--save-final")
     if args.debug:
@@ -1473,7 +1224,6 @@ def _run_train_entry(args: argparse.Namespace) -> None:
         loader=args.loader,
         def_train_module=args.def_train,
         max_steps_override=args.max_steps,
-        backend_override=args.backend,
         attn_implementation_override=args.attn_implementation,
         save_final=args.save_final,
         debug_override=args.debug,

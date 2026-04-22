@@ -1,12 +1,12 @@
 # BMPT 训练上手教程
 
-这份文档面向“有算法想法，但不想深挖 Torch/DeepSpeed 细节”的使用者。
+这份文档面向“有算法想法，但不想深挖训练底层细节”的使用者。
 
 ## 1. 三层结构
 
 - 算法层：`src/bmpt/algorithms/def_train.py`（训练目标与 loss）。
 - 执行层：`bmpt-train` + `src/bmpt/core/`（分布式、优化器、checkpoint）。
-- 配置层：`src/bmpt/algorithms/config.yaml`（学习率、后端、路径）。
+- 配置层：`src/bmpt/algorithms/config.yaml`（学习率、路径等）。
 
 ## 2. 安装
 
@@ -17,26 +17,25 @@ pip install -e .
 可选依赖：
 
 ```bash
-pip install -e .[torch]
 pip install -e .[deepspeed]
 ```
 
 ## 3. 单机训练
 
 ```bash
-bmpt-train --backend pytorch --config src/bmpt/algorithms/config.yaml --max-steps 20
+bmpt-train --config src/bmpt/algorithms/config.yaml --max-steps 20
 ```
 
 也可以用 workspace 自动发现配置与 `def_train.py`：
 
 ```bash
-bmpt-train --workspace /path/to/workspace --backend pytorch --max-steps 20
+bmpt-train --workspace /path/to/workspace --max-steps 20
 ```
 
-## 4. DeepSpeed 路线
+## 4. 训练主路线（DeepSpeed）
 
 ```bash
-bmpt-train --backend deepspeed --config src/bmpt/algorithms/config.yaml --max-steps 20
+bmpt-train --config src/bmpt/algorithms/config.yaml --max-steps 20
 ```
 
 ## 5. 分布式启动（torchrun 风格）
@@ -44,17 +43,17 @@ bmpt-train --backend deepspeed --config src/bmpt/algorithms/config.yaml --max-st
 单机 8 卡：
 
 ```bash
-bmpt-train --nproc-per-node 8 --backend pytorch --config src/bmpt/algorithms/config.yaml
+bmpt-train --nproc-per-node 8 --config src/bmpt/algorithms/config.yaml
 ```
 
 双机示例（每机 8 卡）：
 
 ```bash
-bmpt-train --nnodes 2 --node-rank 0 --nproc-per-node 8 --master-addr <master_ip> --master-port 29500 --backend deepspeed --config src/bmpt/algorithms/config.yaml
+bmpt-train --nnodes 2 --node-rank 0 --nproc-per-node 8 --master-addr <master_ip> --master-port 29500 --config src/bmpt/algorithms/config.yaml
 ```
 
 ```bash
-bmpt-train --nnodes 2 --node-rank 1 --nproc-per-node 8 --master-addr <master_ip> --master-port 29500 --backend deepspeed --config src/bmpt/algorithms/config.yaml
+bmpt-train --nnodes 2 --node-rank 1 --nproc-per-node 8 --master-addr <master_ip> --master-port 29500 --config src/bmpt/algorithms/config.yaml
 ```
 
 ## 6. 组件选择
@@ -105,7 +104,7 @@ train:
   load_ckpt_strict: true
 ```
 
-然后正常启动训练即可（按当前配置的 backend 继续）：
+然后正常启动训练即可：
 
 ```bash
 bmpt-train --config src/bmpt/algorithms/config.yaml

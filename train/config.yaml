@@ -59,7 +59,6 @@ train:
   checkpoint_dir: /data/magnus/rl-group/rl-test-2/
 
 runtime:
-  training_backend: deepspeed
   deepspeed_config_path: deepspeed.zero2.json
   attn_implementation: flash_attention_2
   gradient_checkpointing: true
@@ -76,7 +75,7 @@ prompting:
         - "你是规划器。请把题目拆解成可执行步骤，每行一个步骤，不要直接给最终答案。\n题目：\n"
         - ""
       max_total_len: 2048
-      truncate_side: left
+      truncate_side: right
       add_bos: false
       add_eos: false
     builder_context:

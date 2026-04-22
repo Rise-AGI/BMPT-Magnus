@@ -103,7 +103,7 @@ train:
 - `load_ckpt_strict`：传给 `model.load_state_dict(strict=...)`。
   - `true`（默认）：checkpoint 与当前模型参数名/shape 需严格匹配，缺键/多键/shape 不一致会直接报错并终止。
   - `false`：允许非严格匹配（常用于只加载部分权重或结构轻微变动时），但不匹配参数不会被恢复。
-- `full` 覆盖键：`optimizer.*`、`scheduler.*`、`train.gradient_accumulation_steps`、`train.mixed_precision`、`runtime.training_backend`。
+- `full` 覆盖键：`optimizer.*`、`scheduler.*`、`train.gradient_accumulation_steps`、`train.mixed_precision`、`runtime.deepspeed_config_path`。
 
 ## `rlaif`（可选）
 
@@ -135,7 +135,6 @@ weighted:
 ```yaml
 runtime:
   backend: accelerate
-  training_backend: pytorch   # pytorch | deepspeed
   distributed_backend: nccl
   attn_implementation: auto   # auto | flash_attention_2 | sdpa | eager
   metrics:
@@ -149,7 +148,6 @@ runtime:
   flash_attention: true       # 兼容字段，等价于优先尝试 flash_attention_2
 ```
 
-- `training_backend` 控制正式训练入口走 PyTorch 或 DeepSpeed。
 - `attn_implementation` 控制模型 attention 实现。
   - 推荐默认：`auto`
   - 可显式指定：`flash_attention_2`、`sdpa`、`eager`
@@ -225,7 +223,7 @@ prompting:
 
 优先级从高到低：
 
-1. CLI 参数（如 `--backend`, `--max-steps`）
+1. CLI 参数（如 `--max-steps`）
 2. `step(..., input={"config": ...})` 的 step 级覆盖
 3. `train/config.yaml` 默认值
 

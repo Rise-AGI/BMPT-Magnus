@@ -7,7 +7,7 @@
 命令：
 
 ```bash
-bmpt-train --config src/bmpt/algorithms/config.yaml --backend pytorch --max-steps 20
+bmpt-train --config src/bmpt/algorithms/config.yaml --max-steps 20
 ```
 
 预期信号：
@@ -19,7 +19,7 @@ bmpt-train --config src/bmpt/algorithms/config.yaml --backend pytorch --max-step
 命令：
 
 ```bash
-bmpt-train --workspace /path/to/workspace --backend pytorch --max-steps 20
+bmpt-train --workspace /path/to/workspace --max-steps 20
 ```
 
 预期信号：
@@ -36,7 +36,7 @@ bmpt-train --workspace /path/to/workspace --backend pytorch --max-steps 20
 命令：
 
 ```bash
-bmpt-train --config /path/to/config.yaml --def-train /path/to/def_train.py --backend pytorch
+bmpt-train --config /path/to/config.yaml --def-train /path/to/def_train.py
 ```
 
 预期信号：
@@ -48,7 +48,7 @@ bmpt-train --config /path/to/config.yaml --def-train /path/to/def_train.py --bac
 命令：
 
 ```bash
-bmpt-train --nproc-per-node 8 --config src/bmpt/algorithms/config.yaml --backend pytorch
+bmpt-train --nproc-per-node 8 --config src/bmpt/algorithms/config.yaml
 ```
 
 预期信号：
@@ -60,13 +60,13 @@ bmpt-train --nproc-per-node 8 --config src/bmpt/algorithms/config.yaml --backend
 节点 0：
 
 ```bash
-bmpt-train --nnodes 2 --node-rank 0 --nproc-per-node 8 --master-addr <master_ip> --master-port 29500 --config src/bmpt/algorithms/config.yaml --backend deepspeed
+bmpt-train --nnodes 2 --node-rank 0 --nproc-per-node 8 --master-addr <master_ip> --master-port 29500 --config src/bmpt/algorithms/config.yaml
 ```
 
 节点 1：
 
 ```bash
-bmpt-train --nnodes 2 --node-rank 1 --nproc-per-node 8 --master-addr <master_ip> --master-port 29500 --config src/bmpt/algorithms/config.yaml --backend deepspeed
+bmpt-train --nnodes 2 --node-rank 1 --nproc-per-node 8 --master-addr <master_ip> --master-port 29500 --config src/bmpt/algorithms/config.yaml
 ```
 
 预期信号：
