@@ -24,19 +24,21 @@ def _sample_with_logprob(
     attention_mask = torch.ones_like(input_ids, dtype=torch.long)
 
     do_sample = temperature > 0
+    generate_kwargs: dict[str, Any] = {
+        "input_ids": input_ids,
+        "attention_mask": attention_mask,
+        "max_new_tokens": max_new_tokens,
+        "do_sample": do_sample,
+        "pad_token_id": int(tokenizer.pad_token_id),
+        "eos_token_id": getattr(tokenizer, "eos_token_id", None),
+        "return_dict_in_generate": True,
+        "output_scores": not require_grad,
+    }
+    if do_sample:
+        generate_kwargs["temperature"] = _safe_temp(temperature)
 
     with torch.no_grad():
-        generated = model.generate(
-            input_ids=input_ids,
-            attention_mask=attention_mask,
-            max_new_tokens=max_new_tokens,
-            do_sample=do_sample,
-            temperature=_safe_temp(temperature),
-            pad_token_id=int(tokenizer.pad_token_id),
-            eos_token_id=getattr(tokenizer, "eos_token_id", None),
-            return_dict_in_generate=True,
-            output_scores=True,
-        )
+        generated = model.generate(**generate_kwargs)
 
     generated_ids = generated["sequences"][0].tolist()
     new_ids = generated_ids[len(prompt_ids) :]
@@ -80,29 +82,73 @@ def _sample_with_logprob_batch(
     if not prompt_ids:
         prompt_ids = [0]
 
-    input_ids = torch.tensor([prompt_ids] * num_samples, dtype=torch.long, device=device)
-    attention_mask = torch.ones_like(input_ids, dtype=torch.long)
-
     do_sample = temperature > 0
-
-    with torch.no_grad():
-        generated = model.generate(
-            input_ids=input_ids,
-            attention_mask=attention_mask,
-            max_new_tokens=max_new_tokens,
-            do_sample=do_sample,
-            temperature=_safe_temp(temperature),
-            pad_token_id=int(tokenizer.pad_token_id),
-            eos_token_id=getattr(tokenizer, "eos_token_id", None),
-            return_dict_in_generate=True,
-            output_scores=True,
-        )
-
-    sequences = generated["sequences"]
-    scores = generated.get("scores", [])
     prompt_len = len(prompt_ids)
 
     results: list[tuple[list[int], torch.Tensor]] = []
+
+    if require_grad:
+        base_input_ids = _to_single_batch_tensor(prompt_ids, device=device)
+        base_attention_mask = torch.ones_like(base_input_ids, dtype=torch.long)
+        for _ in range(num_samples):
+            generate_kwargs: dict[str, Any] = {
+                "input_ids": base_input_ids,
+                "attention_mask": base_attention_mask,
+                "max_new_tokens": max_new_tokens,
+                "do_sample": do_sample,
+                "pad_token_id": int(tokenizer.pad_token_id),
+                "eos_token_id": getattr(tokenizer, "eos_token_id", None),
+                "return_dict_in_generate": True,
+                "output_scores": False,
+            }
+            if do_sample:
+                generate_kwargs["temperature"] = _safe_temp(temperature)
+
+            with torch.no_grad():
+                generated = model.generate(**generate_kwargs)
+
+            gen_ids = generated["sequences"][0].tolist()
+            new_ids = gen_ids[prompt_len:]
+
+            if not new_ids:
+                results.append((new_ids, torch.zeros((), device=device, requires_grad=True)))
+                continue
+
+            full_ids = prompt_ids + new_ids
+            full_input_ids = torch.tensor([full_ids], dtype=torch.long, device=device)
+            outputs = model(full_input_ids)
+            logits = outputs.logits[:, prompt_len - 1 : len(full_ids) - 1, :]
+            logprobs = torch.log_softmax(logits[0], dim=-1)
+            total_logprob = torch.zeros((), device=device)
+            for idx, token_id in enumerate(new_ids):
+                total_logprob = total_logprob + logprobs[idx, token_id]
+
+            results.append((new_ids, total_logprob))
+
+        return results
+
+    input_ids = torch.tensor([prompt_ids] * num_samples, dtype=torch.long, device=device)
+    attention_mask = torch.ones_like(input_ids, dtype=torch.long)
+
+    generate_kwargs = {
+        "input_ids": input_ids,
+        "attention_mask": attention_mask,
+        "max_new_tokens": max_new_tokens,
+        "do_sample": do_sample,
+        "pad_token_id": int(tokenizer.pad_token_id),
+        "eos_token_id": getattr(tokenizer, "eos_token_id", None),
+        "return_dict_in_generate": True,
+        "output_scores": True,
+    }
+    if do_sample:
+        generate_kwargs["temperature"] = _safe_temp(temperature)
+
+    with torch.no_grad():
+        generated = model.generate(**generate_kwargs)
+
+    sequences = generated["sequences"]
+    scores = generated.get("scores", [])
+
     for i in range(num_samples):
         gen_ids = sequences[i].tolist()
         new_ids = gen_ids[prompt_len:]
