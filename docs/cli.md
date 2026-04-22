@@ -66,7 +66,7 @@ bmpt-train --nnodes 2 --node-rank 0 --nproc-per-node 8 --master-addr <master_ip>
 
 `runtime.deepspeed_config_path` 仍是最高优先级来源。
 
-当使用 deepspeed 后端时，程序只读取当前训练配置里的：
+训练入口固定使用 DeepSpeed，程序只读取当前训练配置里的：
 
 - `runtime.deepspeed_config_path`
 

@@ -22,4 +22,4 @@ From: base_pytorch.sif
 
 %runscript
     cd /workspace
-    exec bmpt-train --backend deepspeed --config train/config.yaml "$@"
+    exec bmpt-train --config train/config.yaml "$@"

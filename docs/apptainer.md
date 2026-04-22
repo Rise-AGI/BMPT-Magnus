@@ -1,14 +1,8 @@
 # Apptainer Build Guide
 
-本项目使用 Apptainer 定义文件支持两种后端镜像：`torch` 和 `deepspeed`。
+本项目使用 Apptainer 定义文件提供 DeepSpeed 训练镜像。
 
 ## 构建镜像
-
-构建 PyTorch 版本：
-
-```bash
-apptainer build brisk-torch.sif apptainer/torch.def
-```
 
 构建 DeepSpeed 版本：
 
@@ -18,13 +12,7 @@ apptainer build brisk-deepspeed.sif apptainer/deepspeed.def
 
 ## 运行镜像
 
-运行 PyTorch 路线：
-
-```bash
-apptainer run --nv --bind $(pwd):/workspace brisk-torch.sif
-```
-
-运行 DeepSpeed 路线：
+运行默认训练命令：
 
 ```bash
 apptainer run --nv --bind $(pwd):/workspace brisk-deepspeed.sif
@@ -46,7 +34,7 @@ DeepSpeed 镜像默认不编译自定义算子（`DS_BUILD_OPS=0`），避免编
 ## 说明
 
 - 默认工作目录为 `/workspace`（通过 `--bind $(pwd):/workspace` 挂载当前项目）。
-- 默认命令分别对应 `bmpt-train --backend pytorch --config train/config.yaml` 或 `bmpt-train --backend deepspeed --config train/config.yaml`。
+- 默认命令对应 `bmpt-train --config train/config.yaml`。
 - 可在 `apptainer run ... -- <args>` 追加参数覆盖默认行为。
 
 ## FlashAttention 依赖
@@ -72,12 +60,6 @@ python3 -c "import flash_attn; print(flash_attn.__version__)"
 
 ```bash
 apptainer pull base_pytorch.sif docker://pytorch/pytorch:2.3.1-cuda12.1-cudnn8-runtime
-```
-
-再构建（PyTorch 版本）：
-
-```bash
-apptainer build brisk-torch.sif apptainer/torch.local.def
 ```
 
 再构建（DeepSpeed 版本）：

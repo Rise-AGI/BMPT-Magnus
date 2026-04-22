@@ -20,13 +20,13 @@ pip install -e .
 单进程运行：
 
 ```bash
-bmpt-train --config src/bmpt/algorithms/config.yaml --backend pytorch --max-steps 20
+bmpt-train --config src/bmpt/algorithms/config.yaml --max-steps 20
 ```
 
 单机分布式：
 
 ```bash
-bmpt-train --nproc-per-node 8 --config src/bmpt/algorithms/config.yaml --backend pytorch
+bmpt-train --nproc-per-node 8 --config src/bmpt/algorithms/config.yaml
 ```
 
 ## 3. `--workspace` 自动发现
@@ -39,7 +39,7 @@ bmpt-train --nproc-per-node 8 --config src/bmpt/algorithms/config.yaml --backend
 示例：
 
 ```bash
-bmpt-train --workspace /path/to/workspace --backend pytorch
+bmpt-train --workspace /path/to/workspace
 ```
 
 ## 4. 参数优先级

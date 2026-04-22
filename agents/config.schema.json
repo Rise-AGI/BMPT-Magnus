@@ -202,13 +202,6 @@
       "type": "object",
       "additionalProperties": true,
       "properties": {
-        "training_backend": {
-          "type": "string",
-          "enum": [
-            "pytorch",
-            "deepspeed"
-          ]
-        },
         "distributed_backend": {
           "type": "string"
         },

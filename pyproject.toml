@@ -16,12 +16,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-torch = [
+deepspeed = [
   "transformers==4.45.2",
   "peft==0.13.2",
   "sentencepiece==0.2.0",
-]
-deepspeed = [
   "deepspeed==0.14.5",
 ]
 

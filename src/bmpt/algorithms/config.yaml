@@ -34,7 +34,6 @@ train:
 
 runtime:
   backend: accelerate
-  training_backend: pytorch
   distributed_backend: nccl
   attn_implementation: auto
   metrics:

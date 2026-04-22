@@ -30,4 +30,4 @@ From: pytorch/pytorch:2.5.1-cuda12.1-cudnn9-devel
 
 %runscript
     cd /workspace
-    exec bmpt-train --backend deepspeed --config train/config.yaml "$@"
+    exec bmpt-train --config train/config.yaml "$@"

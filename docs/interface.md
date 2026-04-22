@@ -218,6 +218,6 @@ return {
 ## 12. Checkpoint 恢复契约
 
 - 训练入口使用统一 `.pt` checkpoint payload（`format_version=2`）。
-- `train.load_ckpt_mode=full`：恢复 model/optimizer/scheduler/step，并覆盖配置键：`optimizer.*`、`scheduler.*`、`train.gradient_accumulation_steps`、`train.mixed_precision`、`runtime.training_backend`。
+- `train.load_ckpt_mode=full`：恢复 model/optimizer/scheduler/step，并覆盖配置键：`optimizer.*`、`scheduler.*`、`train.gradient_accumulation_steps`、`train.mixed_precision`、`runtime.deepspeed_config_path`。
 - `train.load_ckpt_mode=weights_only`：仅恢复 model；其余相关配置只提示差异，不执行覆盖。
 - 恢复失败（文件缺失、损坏、shape/key 不匹配等）默认 fail-fast，不静默回退到从头训练。
