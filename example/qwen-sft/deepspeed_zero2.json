@@ -1,0 +1,17 @@
+{
+  "zero_optimization": {
+    "stage": 2,
+    "offload_optimizer": {
+      "device": "none"
+    },
+    "overlap_comm": true,
+    "contiguous_gradients": true,
+    "reduce_bucket_size": 524288,
+    "allgather_bucket_size": 524288
+  },
+  "gradient_accumulation_steps": 4,
+  "train_micro_batch_size_per_gpu": 2,
+  "gradient_clipping": 1.0,
+  "steps_per_print": 10,
+  "wall_clock_breakdown": false
+}

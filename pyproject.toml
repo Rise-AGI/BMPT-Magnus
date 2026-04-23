@@ -23,8 +23,7 @@ deepspeed = [
   "deepspeed==0.14.5",
 ]
 
-[project.scripts]
-bmpt-train = "bmpt.cli.train:main"
+# CLI entry point removed - use torchrun with user scripts
 
 [tool.setuptools]
 package-dir = {"" = "src"}
@@ -33,8 +32,4 @@ package-dir = {"" = "src"}
 where = ["src"]
 include = ["bmpt*"]
 
-[tool.setuptools.package-data]
-bmpt = [
-  "algorithms/*.yaml",
-  "algorithms/*.json",
-]
+# Package data configured per module

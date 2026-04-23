@@ -6,7 +6,7 @@ from typing import Any
 import torch
 from torch import nn
 
-from bmpt.cli.train import _debug_print
+from bmpt.util import _debug_print
 from bmpt.util import Composer
 
 from pbv_common import (
