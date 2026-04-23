@@ -72,7 +72,7 @@ class ToolBox:
                 raise ValueError(f"config.models.{name}.path is required")
 
             built_models[name] = load_model(name, spec, self.manager.config)
-            self.tokenizers[name] = load_tokenizer(self.manager.config, local_source=name)
+            self.tokenizers[name] = load_tokenizer(self.manager.config, imp_model=name)
 
         self.models = built_models
         self._initialize_deepspeed_engine(model_name)
