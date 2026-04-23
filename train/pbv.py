@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -263,6 +264,68 @@ def _resolve_row_text(batch: dict[str, Any], key: str, idx: int) -> str:
     return ""
 
 
+def _train_log_prefix() -> str:
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    return f"[\033[34mTrain\033[0m] {now}"
+
+
+def _format_cuda_memory(device: torch.device) -> str:
+    if device.type != "cuda" or not torch.cuda.is_available():
+        return "cuda_mem=N/A"
+    dev_idx = device.index if device.index is not None else torch.cuda.current_device()
+    allocated = torch.cuda.memory_allocated(dev_idx) / (1024 ** 3)
+    reserved = torch.cuda.memory_reserved(dev_idx) / (1024 ** 3)
+    max_allocated = torch.cuda.max_memory_allocated(dev_idx) / (1024 ** 3)
+    return (
+        f"cuda_mem(GB): allocated={allocated:.3f}, "
+        f"reserved={reserved:.3f}, max_allocated={max_allocated:.3f}"
+    )
+
+
+def _log_builder_debug(
+    *,
+    enabled: bool,
+    tokenizer: Any,
+    builder_input_ids: torch.Tensor,
+    candidate_ids: list[torch.Tensor],
+    device: torch.device,
+    row_idx: int,
+    step_idx: int,
+) -> None:
+    if not enabled:
+        return
+
+    input_text = _decode_ids(tokenizer, builder_input_ids.squeeze(0))
+    output_texts = [_decode_ids(tokenizer, ids) for ids in candidate_ids]
+    mem_state = _format_cuda_memory(device)
+
+    print(
+        f"{_train_log_prefix()} builder_call row={row_idx} step={step_idx} "
+        f"num_candidates={len(output_texts)}",
+        flush=True,
+    )
+    print(f"{_train_log_prefix()} input: {input_text}", flush=True)
+    for idx, text in enumerate(output_texts):
+        print(f"{_train_log_prefix()} output[{idx}]: {text}", flush=True)
+    print(f"{_train_log_prefix()} {mem_state}", flush=True)
+
+
+def _log_builder_pre_sample_memory(
+    *,
+    enabled: bool,
+    device: torch.device,
+    row_idx: int,
+    step_idx: int,
+) -> None:
+    if not enabled:
+        return
+    mem_state = _format_cuda_memory(device)
+    print(
+        f"{_train_log_prefix()} builder_pre_sample row={row_idx} step={step_idx} {mem_state}",
+        flush=True,
+    )
+
+
 def train_one_batch(
     *,
     batch: dict[str, Any],
@@ -272,6 +335,7 @@ def train_one_batch(
     planner_composer: Composer,
     builder_composer: Composer,
     verifier_composer: Composer,
+    debug_rank0: bool,
     device: torch.device,
     cfg: dict[str, Any],
 ) -> dict[str, float]:
@@ -344,7 +408,7 @@ def train_one_batch(
 
         accepted_prefix = ""
 
-        for plan_step in plan_steps:
+        for step_idx, plan_step in enumerate(plan_steps):
             plan_step_ids = _encode_text_1d(tokenizer, plan_step, device=device)
             accepted_prefix_ids = _encode_text_1d(tokenizer, accepted_prefix, device=device)
             builder_prompt_ids = _compose_single_input_ids(
@@ -352,6 +416,12 @@ def train_one_batch(
                 outputs_1d=[question_text_ids, plan_step_ids, accepted_prefix_ids],
             ).unsqueeze(0)
 
+            _log_builder_pre_sample_memory(
+                enabled=debug_rank0,
+                device=device,
+                row_idx=row,
+                step_idx=step_idx,
+            )
             candidates = _sample_with_kv_cache(
                 model=builder_model,
                 prompt_ids=builder_prompt_ids,
@@ -360,6 +430,15 @@ def train_one_batch(
                 temperature=builder_temp,
                 top_p=builder_top_p,
                 num_samples=builder_k,
+            )
+            _log_builder_debug(
+                enabled=debug_rank0,
+                tokenizer=tokenizer,
+                builder_input_ids=builder_prompt_ids,
+                candidate_ids=candidates,
+                device=device,
+                row_idx=row,
+                step_idx=step_idx,
             )
 
             cand_logp = _completion_logprob_batch(
@@ -539,6 +618,7 @@ def main() -> None:
                     planner_composer=planner_composer,
                     builder_composer=builder_composer,
                     verifier_composer=verifier_composer,
+                    debug_rank0=is_rank0,
                     device=dist_ctx.device,
                     cfg=config,
                 )
