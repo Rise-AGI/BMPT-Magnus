@@ -1,11 +1,11 @@
 models:
   builder:
-    path: Qwen/Qwen2.5-7B-Instruct
+    path: /data/zhaoweiran/models/Qwen/Qwen2.5-7B
     trainable: true
     lora:
       enabled: false
   shared_frozen:
-    path: Qwen/Qwen2.5-7B-Instruct
+    path: /data/zhaoweiran/models/Qwen/Qwen2.5-7B
     trainable: false
 
 data:
