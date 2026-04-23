@@ -1,5 +1,0 @@
-{"prompt": "请介绍一下 BMPT 框架的主要特点。", "response": "BMPT（Brisk Module for Post-Training）是一个大模型后训练框架，主要特点包括：1) 用户代码入口，无强制 CLI；2) 提供 ToolBox 工具箱封装分布式、模型加载、数据处理等能力；3) 支持 DeepSpeed 分布式训练；4) 灵活的配置管理；5) 用户完全控制训练循环。"}
-{"prompt": "如何使用 BMPT 进行 SFT 微调？", "response": "使用 BMPT 进行 SFT 微调的步骤：1) 准备训练数据（JSONL 格式，包含 prompt 和 response 字段）；2) 编写配置文件 config.yaml，定义模型路径、数据源、训练参数；3) 编写训练脚本 train.py，使用 ToolBox 加载模型和初始化 DeepSpeed；4) 用 torchrun 启动分布式训练。"}
-{"prompt": "BMPT ToolBox 提供哪些核心功能？", "response": "BMPT ToolBox 提供的核心功能包括：load_models() 加载模型并初始化 DeepSpeed Engine；tokenize_batch() 批量 tokenize 文本；optim_step() 执行优化器步进。ToolBox 依赖 Manager 加载配置，自动处理模型/tokenizer 加载、DeepSpeed 初始化等细节。"}
-{"prompt": "BMPT 如何处理分布式训练？", "response": "BMPT 使用 bmpt.core.distributed 模块处理分布式训练：init_distributed() 从环境变量初始化进程组；move_to_device() 将数据移到设备；reduce_metrics() 跨卡聚合指标；is_main_process() 判断 rank0。用户使用 torchrun 启动，BMPT 自动检测 WORLD_SIZE/RANK 等环境变量。"}
-{"prompt": "BMPT 数据预处理流程是怎样的？", "response": "BMPT 数据预处理流程：1) process_all_sources() 从 config.data.sources 加载所有数据源；2) 每个源执行 load_jsonl 加载原始数据；3) validate_required_keys 校验必需字段；4) tokenize_records 对指定字段 tokenize；5) 缓存到 cache_dir，后续自动复用。预处理后的数据包含原始字段 + *_input_ids 字段。"}
