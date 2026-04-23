@@ -46,3 +46,6 @@ Thumbs.db
 
 # apptainer images
 *.sif
+
+# backups
+*.backup
