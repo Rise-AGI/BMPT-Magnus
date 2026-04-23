@@ -1,0 +1,103 @@
+models:
+  builder:
+    path: Qwen/Qwen2.5-7B-Instruct
+    trainable: true
+    lora:
+      enabled: false
+  shared_frozen:
+    path: Qwen/Qwen2.5-7B-Instruct
+    trainable: false
+
+data:
+  sources:
+    - name: train
+      path: train/data/data.jsonl
+      required_keys: [question, answer]
+      tokenize_keys: [question, answer]
+  max_seq_len: 2048
+  cache_dir: train/data/cache
+  tokenizer_source: builder
+  loader:
+    num_workers: 2
+    prefetch_factor: 2
+    persistent_workers: true
+
+train:
+  max_steps: 200
+  per_device_batch_size: 1
+  gradient_accumulation_steps: 4
+  mixed_precision: bf16
+  grad_clip_norm: 1.0
+  log_every_steps: 5
+
+optimizer:
+  type: adamw
+  lr: 2.0e-6
+  weight_decay: 0.01
+  betas: [0.9, 0.999]
+  eps: 1.0e-8
+
+scheduler:
+  type: cosine
+  warmup_steps: 20
+  min_lr_ratio: 0.1
+
+runtime:
+  distributed_backend: nccl
+  deepspeed_config_path: deepspeed_zero2.json
+  gradient_checkpointing: true
+  attn_implementation: flash_attention_2
+  metrics:
+    enabled: true
+    global_throughput: true
+    window_size: 20
+    output: stdout
+
+prompting:
+  tokenizer_source: builder
+  composers:
+    planner:
+      prompts:
+        - "[Question]\n"
+        - "\n\n[Instruction]\n你是规划器。请把这道题拆成可验证的小步骤。每行一步，不要解释，不要编号。\n"
+      max_total_len: 4096
+      truncate_side: left
+      add_bos: false
+      add_eos: false
+    builder:
+      prompts:
+        - "[Question]\n"
+        - "\n\n[Current Plan Step]\n"
+        - "\n\n[Accepted Prefix]\n"
+        - "\n\n[Instruction]\nGenerate the next process fragment for the current plan step only."
+      max_total_len: 4096
+      truncate_side: left
+      add_bos: false
+      add_eos: false
+    verifier:
+      prompts:
+        - "You are a strict verifier. Output exactly one word: Right or Wrong.\n\n[Question]\n"
+        - "\n\n[Plan Step]\n"
+        - "\n\n[Accepted Prefix]\n"
+        - "\n\n[Candidate]\n"
+        - "\n\n[Reference Answer]\n"
+        - "\n\nJudgement:"
+      max_total_len: 4096
+      truncate_side: left
+      add_bos: false
+      add_eos: false
+
+algorithm:
+  planner:
+    max_plan_steps: 4
+    max_new_tokens: 96
+  builder:
+    k_samples: 2
+    max_new_tokens: 96
+    temperature: 0.8
+    top_p: 0.95
+    select_tau: 1.0
+    kl_beta: 0.02
+  verifier:
+    threshold: 0.5
+    max_new_tokens: 6
