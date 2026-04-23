@@ -17,14 +17,20 @@ def _require_hf() -> Any:
 def resolve_tokenizer_source(
     config: dict[str, Any],
     local_source: str | None = None,
+    imp_model: str = "policy",
 ) -> str:
     """通用tokenizer来源解析
-    
+
     优先级：
     1. local_source（调用方传入，如从data/prompting提取）
     2. 顶层 tokenizer_source
-    3. 默认 models.policy.path
-    
+    3. 默认 models.{imp_model}.path
+
+    Args:
+        config: 配置字典
+        local_source: 本地指定的tokenizer来源
+        imp_model: 默认模型key，当未指定tokenizer_source时使用该模型的path
+
     支持值：
     - models中的key（如"policy"/"reference") → 使用对应模型path
     - 直接路径 → 直接返回
@@ -46,17 +52,17 @@ def resolve_tokenizer_source(
                 return str(model_spec["path"])
         return str(tokenizer_source)
     
-    policy_spec = model_cfg.get("policy")
-    if isinstance(policy_spec, dict) and "path" in policy_spec:
-        return str(policy_spec["path"])
-    
-    raise ValueError("Cannot resolve tokenizer_source: missing models.policy.path")
+    imp_spec = model_cfg.get(imp_model)
+    if isinstance(imp_spec, dict) and "path" in imp_spec:
+        return str(imp_spec["path"])
+
+    raise ValueError(f"Cannot resolve tokenizer_source: missing models.{imp_model}.path")
 
 
-def load_tokenizer(config: dict[str, Any]) -> Any:
+def load_tokenizer(config: dict[str, Any], imp_model: str = "policy") -> Any:
     AutoTokenizer = _require_hf()
     local_source = config.get("data", {}).get("tokenizer_source")
-    tokenizer_path = resolve_tokenizer_source(config, local_source)
+    tokenizer_path = resolve_tokenizer_source(config, local_source, imp_model=imp_model)
     tokenizer = AutoTokenizer.from_pretrained(tokenizer_path, trust_remote_code=True)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token

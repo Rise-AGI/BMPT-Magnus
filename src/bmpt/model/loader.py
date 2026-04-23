@@ -122,6 +122,8 @@ def load_model(label: str, spec: dict[str, Any], config: dict[str, Any]) -> torc
     runtime_cfg = config.get("runtime", {})
     enable_gradient_ckpt = bool(runtime_cfg.get("gradient_checkpointing", False))
     if enable_gradient_ckpt:
+        if _is_rank0():
+            print("[\033[34m训练\033[0m] gradient checkpointing 激活")
         if hasattr(model, "config") and hasattr(model.config, "use_cache"):
             model.config.use_cache = False
         if hasattr(model, "gradient_checkpointing_enable"):
@@ -129,8 +131,7 @@ def load_model(label: str, spec: dict[str, Any], config: dict[str, Any]) -> torc
         elif _is_rank0():
             warnings.warn("gradient_checkpointing is enabled in config but model has no gradient_checkpointing_enable()", RuntimeWarning)
 
-    if label == "policy":
-        model = _apply_lora_if_needed(model, spec)
+    model = _apply_lora_if_needed(model, spec)
 
     if _is_rank0():
         print(
