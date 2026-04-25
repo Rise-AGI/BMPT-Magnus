@@ -56,32 +56,32 @@ runtime:
 prompting:
   tokenizer_source: builder
   composers:
+
     planner:
       prompts:
-        - "[Question]\n"
-        - "\n\n[Instruction]\n你是规划器。请把这道题拆成可验证的小步骤。每行一步，不要解释，不要编号。\n"
-      max_total_len: 4096
-      truncate_side: left
+        - "你是规划器，你需要把题目拆成可批改的小目标，形如\"根据 xyz 计算 abc\"。\n题目：\n"
+        - ""
+      max_total_len: 2048
+      truncate_side: right
       add_bos: false
       add_eos: false
     builder:
       prompts:
-        - "[Question]\n"
-        - "\n\n[Current Plan Step]\n"
-        - "\n\n[Accepted Prefix]\n"
-        - "\n\n[Instruction]\nGenerate the next process fragment for the current plan step only."
+        - "你是物理解题器，你不需要解出题目，只需要完成目标。\n题目：\n"
+        - "\n\n下一步：\n"
+        - "\n\n已完成过程：\n"
+        - "\n\n你不需要解出题目，完成下一步后立刻结束，否则即使解答正确也判定为失败"
       max_total_len: 4096
       truncate_side: left
       add_bos: false
       add_eos: false
     verifier:
       prompts:
-        - "You are a strict verifier. Output exactly one word: Right or Wrong.\n\n[Question]\n"
-        - "\n\n[Plan Step]\n"
-        - "\n\n[Accepted Prefix]\n"
-        - "\n\n[Candidate]\n"
-        - "\n\n[Reference Answer]\n"
-        - "\n\nJudgement:"
+        - "你是严格验证器。请先在内部思考，不要输出思考过程。\n题目：\n"
+        - "\n\n计划步骤：\n"
+        - "\n\n已接受前缀：\n"
+        - "\n\n候选答案：\n"
+        - "\n\n请判断候选是否与题目和步骤一致。仅输出 Right 或 Wrong。"
       max_total_len: 4096
       truncate_side: left
       add_bos: false
