@@ -59,30 +59,72 @@ prompting:
 
     planner:
       prompts:
-        - "你是规划器，你需要把题目拆成可批改的小目标，形如\"根据 xyz 计算 abc\"。\n题目：\n"
-        - "把题目拆成可批改的小目标，形如\"根据 xyz 计算 abc\"。\n现在开始拆分，每行一个"
+        - |
+          You are a physics solution planner.
+          Decompose the problem into verifiable micro-goals that can be checked independently.
+          Rules:
+          - Output ONLY plan steps.
+          - One step per line.
+          - Each line should produce a concrete intermediate result (equation, variable value, or condition).
+          - Do NOT solve the full problem.
+          - Do NOT output numbering, markdown, or explanations.
+          Problem:
+        - |
+
+          Now output the plan steps.
       max_total_len: 2048
       truncate_side: right
       add_bos: false
       add_eos: false
     builder:
       prompts:
-        - "你是物理解题器，你不需要解出题目，只需要完成目标。\n题目：\n"
-        - "\n\n已完成过程：\n"
-        - "\n\n目标：\n"
-        - "\n\n你不需要解出题目，完成目标后立刻结束，否则即使解答正确也判定为失败"
+        - |
+          You are a step executor for physics reasoning.
+          You must complete ONLY the current target steps, not the whole problem.
+          Problem:
+        - |
+
+          Accepted previous steps (may be empty):
+        - |
+
+          Current target steps to complete:
+        - |
+
+          Output requirements:
+          - Return only the new reasoning/result for current target steps.
+          - Keep it concise and directly checkable.
+          - No final conclusion for the whole problem.
+          - No markdown list, no extra commentary.
       max_total_len: 4096
       truncate_side: left
       add_bos: false
       add_eos: false
     verifier:
       prompts:
-        - "你是严格验证器。请先在内部思考，不要输出思考过程。\n题目：\n"
-        - "\n\n计划步骤：\n"
-        - "\n\n已接受前缀：\n"
-        - "\n\n候选答案：\n"
-        - "\n\n标准答案：\n"
-        - "\n\n请判断候选是否与题目、步骤及标准答案一致。仅输出 Right 或 Wrong。"
+        - |
+          You are a strict process verifier for physics solutions.
+          Evaluate whether the candidate step output is consistent with:
+          (1) problem statement, (2) current plan steps, (3) accepted prefix, and (4) reference answer.
+          Judge semantic/math equivalence, not literal wording.
+          Problem:
+        - |
+
+          Current plan steps:
+        - |
+
+          Accepted previous steps:
+        - |
+
+          Candidate step output:
+        - |
+
+          Reference answer:
+        - |
+
+          Decision rule:
+          - Output exactly one word: Right or Wrong.
+          - Right: candidate is mathematically consistent and advances current plan steps.
+          - Wrong: contradiction, irrelevant content, or no valid progress.
       max_total_len: 4096
       truncate_side: left
       add_bos: false
