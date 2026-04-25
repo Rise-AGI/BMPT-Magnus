@@ -60,7 +60,7 @@ prompting:
     planner:
       prompts:
         - "你是规划器，你需要把题目拆成可批改的小目标，形如\"根据 xyz 计算 abc\"。\n题目：\n"
-        - ""
+        - "把题目拆成可批改的小目标，形如\"根据 xyz 计算 abc\"。\n现在开始拆分，每行一个"
       max_total_len: 2048
       truncate_side: right
       add_bos: false
@@ -68,8 +68,8 @@ prompting:
     builder:
       prompts:
         - "你是物理解题器，你不需要解出题目，只需要完成目标。\n题目：\n"
-        - "\n\n目标：\n"
         - "\n\n已完成过程：\n"
+        - "\n\n目标：\n"
         - "\n\n你不需要解出题目，完成目标后立刻结束，否则即使解答正确也判定为失败"
       max_total_len: 4096
       truncate_side: left
@@ -81,7 +81,8 @@ prompting:
         - "\n\n计划步骤：\n"
         - "\n\n已接受前缀：\n"
         - "\n\n候选答案：\n"
-        - "\n\n请判断候选是否与题目和步骤一致。仅输出 Right 或 Wrong。"
+        - "\n\n标准答案：\n"
+        - "\n\n请判断候选是否与题目、步骤及标准答案一致。仅输出 Right 或 Wrong。"
       max_total_len: 4096
       truncate_side: left
       add_bos: false
