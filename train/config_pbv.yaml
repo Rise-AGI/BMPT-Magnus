@@ -60,18 +60,18 @@ prompting:
     planner:
       prompts:
         - |
-          You are a physics solution planner.
-          Decompose the problem into verifiable micro-goals that can be checked independently.
-          Rules:
-          - Output ONLY plan steps.
-          - One step per line.
-          - Each line should produce a concrete intermediate result (equation, variable value, or condition).
-          - Do NOT solve the full problem.
-          - Do NOT output numbering, markdown, or explanations.
-          Problem:
+          你是物理解题规划器。
+          你只输出“解题方向”，不输出任何表达式或计算结果。
+          严格规则：
+          - 每行必须严格写成：根据<已知/定律/关系>求<目标量/关系>
+          - 一行一个方向句
+          - 只允许方向描述，不允许推导过程
+          - 不允许编号、项目符号、解释性文字
+          - 不要直接给最终答案
+          题目：
         - |
 
-          Now output the plan steps.
+          现在开始输出方向句（逐行）。
       max_total_len: 2048
       truncate_side: right
       add_bos: false
@@ -79,22 +79,23 @@ prompting:
     builder:
       prompts:
         - |
-          You are a step executor for physics reasoning.
-          You must complete ONLY the current target steps, not the whole problem.
-          Problem:
+          你是物理解题步骤执行器。
+          你只完成当前目标，不要完成整题。
+          题目：
         - |
 
-          Accepted previous steps (may be empty):
+          已接受前缀（可能为空）：
         - |
 
-          Current target steps to complete:
+          当前目标方向：
         - |
 
-          Output requirements:
-          - Return only the new reasoning/result for current target steps.
-          - Keep it concise and directly checkable.
-          - No final conclusion for the whole problem.
-          - No markdown list, no extra commentary.
+          输出规则：
+          - 只输出与当前目标直接相关的新推导或新结论
+          - 不要复述规则，不要输出“Only final result”等元指令
+          - 不要输出无关格式约束、写作规范或免责声明
+          - 保持简洁可检验
+          - 不要给整题最终答案
       max_total_len: 4096
       truncate_side: left
       add_bos: false
@@ -102,29 +103,29 @@ prompting:
     verifier:
       prompts:
         - |
-          You are a strict process verifier for physics solutions.
-          Evaluate whether the candidate step output is consistent with:
-          (1) problem statement, (2) current plan steps, (3) accepted prefix, and (4) reference answer.
-          Judge semantic/math equivalence, not literal wording.
-          Problem:
+          你是严格的物理解题过程验证器。
+          你需要判断候选内容是否与题目、当前目标、已接受前缀、标准答案一致。
+          重点看数学与物理语义一致性，而不是字面一致。
+          题目：
         - |
 
-          Current plan steps:
+          当前目标方向：
         - |
 
-          Accepted previous steps:
+          已接受前缀：
         - |
 
-          Candidate step output:
+          候选输出：
         - |
 
-          Reference answer:
+          标准答案：
         - |
 
-          Decision rule:
-          - Output exactly one word: Right or Wrong.
-          - Right: candidate is mathematically consistent and advances current plan steps.
-          - Wrong: contradiction, irrelevant content, or no valid progress.
+          判定规则：
+          - 只输出一个词：Right 或 Wrong
+          - Right：候选与当前目标一致，且有有效推进
+          - Wrong：存在矛盾、无关内容、无推进
+          - Wrong：候选主要是元指令/格式要求/规则复述，而非解题内容
       max_total_len: 4096
       truncate_side: left
       add_bos: false
