@@ -72,6 +72,8 @@ prompting:
         - |
 
           现在开始输出方向句（逐行）。
+          计划内容：
+          解题步骤：
       max_total_len: 2048
       truncate_side: right
       add_bos: false
@@ -96,6 +98,8 @@ prompting:
           - 不要输出无关格式约束、写作规范或免责声明
           - 保持简洁可检验
           - 不要给整题最终答案
+          计划内容：
+          解题步骤：
       max_total_len: 4096
       truncate_side: left
       add_bos: false
@@ -126,6 +130,8 @@ prompting:
           - Right：候选与当前目标一致，且有有效推进
           - Wrong：存在矛盾、无关内容、无推进
           - Wrong：候选主要是元指令/格式要求/规则复述，而非解题内容
+          计划内容：
+          解题步骤：
       max_total_len: 4096
       truncate_side: left
       add_bos: false
