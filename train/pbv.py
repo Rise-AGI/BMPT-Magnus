@@ -343,6 +343,28 @@ def _log_builder_pre_sample_memory(
     )
 
 
+def _log_planner_debug(
+    *,
+    enabled: bool,
+    tokenizer: Any,
+    planner_input_ids: torch.Tensor,
+    plan_ids: torch.Tensor,
+    device: torch.device,
+    row_idx: int,
+) -> None:
+    if not enabled:
+        return
+
+    input_text = _decode_ids(tokenizer, planner_input_ids.squeeze(0))
+    output_text = _decode_ids(tokenizer, plan_ids)
+    mem_state = _format_cuda_memory(device)
+
+    print(f"{_train_log_prefix()} planner_call row={row_idx}", flush=True)
+    print(f"{_train_log_prefix()} planner_input: {input_text}", flush=True)
+    print(f"{_train_log_prefix()} planner_output: {output_text}", flush=True)
+    print(f"{_train_log_prefix()} {mem_state}", flush=True)
+
+
 def train_one_batch(
     *,
     batch: dict[str, Any],
@@ -423,6 +445,14 @@ def train_one_batch(
             num_samples=1,
         )[0]
         plan_text = _decode_ids(tokenizer, plan_ids)
+        _log_planner_debug(
+            enabled=debug_rank0,
+            tokenizer=tokenizer,
+            planner_input_ids=planner_input,
+            plan_ids=plan_ids,
+            device=device,
+            row_idx=row,
+        )
         plan_steps = _split_plan_steps(plan_text, max_steps=max_plan_steps)
 
         if plan_steps:
