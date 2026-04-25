@@ -32,7 +32,7 @@
 
 ### 2.3 Verifier（验证器）
 
-输入：题目 + 当前计划步骤 + 已接受前缀 + 候选答案。
+输入：题目 + 当前计划步骤 + 已接受前缀 + 候选答案 + 标准答案。
 
 - 输出文本被解析为二值分数：`Right -> 1.0`，`Wrong -> 0.0`。
 - 训练中用它给 Builder 候选打分，并间接给 Planner 提供 step 奖励。
@@ -228,7 +228,7 @@ r_i = \mathbf{1}[pass_i] - \beta \cdot (\log \pi_{builder} - \log \pi_{ref})
 
 `QwenProcessVerifier` 的设计是“文本分类 via 生成”：
 
-1. 把输入四段（题目、计划步、前缀、候选）按 composer 拼成完整 prompt。
+1. 把输入五段（题目、计划步、前缀、候选、标准答案）按 composer 拼成完整 prompt。
 2. 调用 `generate(max_new_tokens<=6)` 让模型输出判断词。
 3. 解析开头：
    - 以 `right` 开头 => `1.0`
