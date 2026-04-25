@@ -445,7 +445,7 @@ def train_one_batch(
             accepted_prefix_ids = _encode_text_1d(tokenizer, accepted_prefix, device=device)
             builder_prompt_ids = _compose_single_input_ids(
                 builder_composer,
-                outputs_1d=[question_text_ids, plan_div_ids, accepted_prefix_ids],
+                outputs_1d=[question_text_ids, accepted_prefix_ids, plan_div_ids],
             ).unsqueeze(0)
 
             _log_builder_pre_sample_memory(
