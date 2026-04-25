@@ -68,9 +68,9 @@ prompting:
     builder:
       prompts:
         - "你是物理解题器，你不需要解出题目，只需要完成目标。\n题目：\n"
-        - "\n\n下一步：\n"
+        - "\n\n目标：\n"
         - "\n\n已完成过程：\n"
-        - "\n\n你不需要解出题目，完成下一步后立刻结束，否则即使解答正确也判定为失败"
+        - "\n\n你不需要解出题目，完成目标后立刻结束，否则即使解答正确也判定为失败"
       max_total_len: 4096
       truncate_side: left
       add_bos: false
@@ -88,8 +88,9 @@ prompting:
       add_eos: false
 
 algorithm:
+  div_num: 4
   planner:
-    max_plan_steps: 4
+    max_plan_steps: 12
     max_new_tokens: 96
   builder:
     k_samples: 2

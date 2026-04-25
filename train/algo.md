@@ -24,9 +24,10 @@
 
 ### 2.2 Builder（执行器）
 
-针对每个 plan step，生成候选“下一步过程”。
+先将 plan steps 按 `algorithm.div_num` 均匀分成多个 div，再针对每个非空 div 生成候选“下一步过程”。
 
-- 每个 step 采样 `k_samples` 个候选。
+- 每个非空 div 采样 `k_samples` 个候选。
+- 空 div 不采样，但会执行一次零标量 backward 以保持各 rank 通信步数一致。
 - 候选由 Verifier 判定是否通过，再用于计算 Builder 的策略梯度。
 
 ### 2.3 Verifier（验证器）
@@ -47,7 +48,7 @@
    - `phase = planner` 或 `phase = builder`。
 3. 对 batch 中每个样本：
    - Planner 采样一个 plan；
-   - 对 plan 的每个 step，Builder 采样多个候选，Verifier 打分；
+   - 将 plan 均分为 `div_num` 个 div；对每个非空 div，Builder 采样多个候选，Verifier 打分；
    - 用打分结果更新 Builder（REINFORCE 风格）；
    - 把被选中的候选拼到前缀，继续下一 step；
    - 汇总 step 奖励，若当前 phase 是 planner，则再更新 Planner。
