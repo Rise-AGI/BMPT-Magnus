@@ -53,6 +53,23 @@ def _split_plan_steps(plan_text: str, max_steps: int) -> list[str]:
     return steps[:max_steps]
 
 
+def _split_plan_divs(plan_steps: list[str], div_num: int) -> list[list[str]]:
+    if div_num <= 0:
+        raise ValueError(f"algorithm.div_num must be >= 1, got {div_num}")
+
+    total_steps = len(plan_steps)
+    base_size = total_steps // div_num
+    extra = total_steps % div_num
+
+    divs: list[list[str]] = []
+    cursor = 0
+    for idx in range(div_num):
+        size = base_size + (1 if idx < extra else 0)
+        divs.append(plan_steps[cursor : cursor + size])
+        cursor += size
+    return divs
+
+
 def _clone_past_key_values(past_key_values: Any, repeats: int) -> Any:
     if repeats <= 1:
         return past_key_values
@@ -343,6 +360,7 @@ def train_one_batch(
     planner_cfg = algo_cfg.get("planner", {})
     builder_cfg = algo_cfg.get("builder", {})
     verifier_cfg = algo_cfg.get("verifier", {})
+    div_num = int(algo_cfg.get("div_num", 1))
 
     max_plan_steps = int(planner_cfg.get("max_plan_steps", 4))
     planner_max_new_tokens = int(planner_cfg.get("max_new_tokens", 96))
@@ -355,8 +373,14 @@ def train_one_batch(
     verifier_threshold = float(verifier_cfg.get("threshold", 0.5))
     verifier_max_new_tokens = int(verifier_cfg.get("max_new_tokens", 6))
 
+    if div_num < 1:
+        raise ValueError(f"algorithm.div_num must be >= 1, got {div_num}")
+
     eos_id = int(tokenizer.eos_token_id or tokenizer.pad_token_id or 0)
     builder_model = builder_engine.module
+    builder_anchor_param = next((param for param in builder_model.parameters() if param.requires_grad), None)
+    if builder_anchor_param is None:
+        raise ValueError("builder model must have trainable parameters")
     batch_size = int(batch["question_input_ids"].shape[0])
 
     metrics = {
@@ -406,21 +430,29 @@ def train_one_batch(
         else:
             plan_steps = ["Generate a concise next reasoning step that moves to the final answer."]
 
+        plan_divs = _split_plan_divs(plan_steps, div_num=div_num)
+
         accepted_prefix = ""
 
-        for step_idx, plan_step in enumerate(plan_steps):
-            plan_step_ids = _encode_text_1d(tokenizer, plan_step, device=device)
+        for div_idx, plan_div in enumerate(plan_divs):
+            if not plan_div:
+                zero_loss = builder_anchor_param.reshape(-1)[0] * 0.0
+                builder_engine.backward(zero_loss)
+                continue
+
+            plan_div_text = "\n".join(plan_div).strip()
+            plan_div_ids = _encode_text_1d(tokenizer, plan_div_text, device=device)
             accepted_prefix_ids = _encode_text_1d(tokenizer, accepted_prefix, device=device)
             builder_prompt_ids = _compose_single_input_ids(
                 builder_composer,
-                outputs_1d=[question_text_ids, plan_step_ids, accepted_prefix_ids],
+                outputs_1d=[question_text_ids, plan_div_ids, accepted_prefix_ids],
             ).unsqueeze(0)
 
             _log_builder_pre_sample_memory(
                 enabled=debug_rank0,
                 device=device,
                 row_idx=row,
-                step_idx=step_idx,
+                step_idx=div_idx,
             )
             candidates = _sample_with_kv_cache(
                 model=builder_model,
@@ -438,7 +470,7 @@ def train_one_batch(
                 candidate_ids=candidates,
                 device=device,
                 row_idx=row,
-                step_idx=step_idx,
+                step_idx=div_idx,
             )
 
             cand_logp = _completion_logprob_batch(
@@ -464,7 +496,7 @@ def train_one_batch(
                     verifier_composer,
                     outputs_1d=[
                         question_text_ids,
-                        plan_step_ids,
+                        plan_div_ids,
                         accepted_prefix_ids,
                         candidate_ids,
                         answer_text_ids,
