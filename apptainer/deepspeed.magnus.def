@@ -1,5 +1,5 @@
-Bootstrap: localimage
-From: base_pytorch.sif
+Bootstrap: docker
+From: pytorch/pytorch:2.5.1-cuda12.1-cudnn9-devel
 
 %files
     requirements.common.txt /opt/brisk/requirements.common.txt
@@ -8,11 +8,20 @@ From: base_pytorch.sif
 
 %post
     set -e
+
+    if [ -f /etc/apt/sources.list ]; then
+        sed -i 's|http://archive.ubuntu.com/ubuntu|https://archive.ubuntu.com/ubuntu|g; s|http://security.ubuntu.com/ubuntu|https://security.ubuntu.com/ubuntu|g' /etc/apt/sources.list
+    fi
+    if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then
+        sed -i 's|http://|https://|g' /etc/apt/sources.list.d/ubuntu.sources
+    fi
+
     apt-get update
     apt-get install -y --no-install-recommends git libaio-dev
     rm -rf /var/lib/apt/lists/*
 
     pip install --no-cache-dir -r /opt/brisk/requirements.common.txt
+    pip install --no-cache-dir magnus-sdk
     DS_BUILD_OPS=0 pip install --no-cache-dir -r /opt/brisk/requirements.deepspeed.txt
     pip install --no-cache-dir flash-attn --no-build-isolation || echo "[BMPT] flash-attn install failed; runtime will fallback to default attention"
 
@@ -22,4 +31,3 @@ From: base_pytorch.sif
 
 %runscript
     cd /workspace
-    exec bmpt-train --config train/config.yaml "$@"
