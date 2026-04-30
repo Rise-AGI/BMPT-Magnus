@@ -54,39 +54,48 @@ def build_dataloader(
 
 
 def _collate_fn(batch: list[dict[str, Any]], pad_token_id: int = 0) -> dict[str, Any]:
+    if not batch:
+        raise ValueError("batch cannot be empty")
+
     result: dict[str, Any] = {}
     all_keys: set[str] = set()
     for item in batch:
         all_keys.update(item.keys())
 
+    for idx, item in enumerate(batch):
+        missing = [key for key in all_keys if key not in item]
+        if missing:
+            raise ValueError(
+                f"Batch item at index {idx} is missing keys: {sorted(missing)}"
+            )
+
     for key in all_keys:
         values = []
         for item in batch:
-            val = item.get(key)
+            val = item[key]
             if val is None:
-                values.append(None)
-            elif isinstance(val, list):
+                raise ValueError(f"Batch item contains None for required key: {key}")
+            if isinstance(val, list):
                 values.append(torch.tensor(val, dtype=torch.long))
             elif isinstance(val, torch.Tensor):
                 values.append(val)
             else:
                 values.append(val)
 
-        non_none_values = [v for v in values if v is not None]
-        if non_none_values and isinstance(non_none_values[0], torch.Tensor):
-            shapes = [tuple(v.shape) for v in non_none_values]
+        if values and isinstance(values[0], torch.Tensor):
+            shapes = [tuple(v.shape) for v in values]
             if len(set(shapes)) == 1:
                 result[key] = torch.stack(values)
             else:
                 is_input_ids = key == "input_ids" or key.endswith("_input_ids")
                 pad_val = pad_token_id if is_input_ids else 0
-                max_len = max(v.shape[0] for v in non_none_values)
+                max_len = max(v.shape[0] for v in values)
                 padded = torch.full(
-                    (len(non_none_values), max_len),
+                    (len(values), max_len),
                     fill_value=pad_val,
-                    dtype=non_none_values[0].dtype,
+                    dtype=values[0].dtype,
                 )
-                for i, v in enumerate(non_none_values):
+                for i, v in enumerate(values):
                     padded[i, : v.shape[0]] = v
                 result[key] = padded
         else:

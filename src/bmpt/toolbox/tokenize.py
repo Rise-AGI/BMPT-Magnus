@@ -49,12 +49,12 @@ def tokenize_batch(
     if pad_token_id is None:
         pad_token_id = tokenizer.eos_token_id if tokenizer.eos_token_id is not None else 0
 
-    # 使用 tokenizer 的批量编码
+    # 使用 tokenizer 的批量编码并统一 pad 到 batch 最大长度
     encode_kwargs: dict[str, Any] = {
         "add_special_tokens": False,
         "return_attention_mask": True,
         "return_tensors": "pt",
-        "padding": False,
+        "padding": True,
     }
 
     if max_length is not None:
@@ -65,37 +65,21 @@ def tokenize_batch(
     input_ids: torch.Tensor = encoded["input_ids"]
     attention_mask: torch.Tensor = encoded["attention_mask"]
 
-    # 手动 padding 到 batch 内最大长度
     if input_ids.dim() == 1:
         input_ids = input_ids.unsqueeze(0)
+    if attention_mask.dim() == 1:
         attention_mask = attention_mask.unsqueeze(0)
 
-    batch_size = input_ids.size(0)
-    seq_lengths = attention_mask.sum(dim=1)
-    max_seq_len = int(seq_lengths.max().item())
-
-    if max_seq_len < input_ids.size(1):
-        # 需要 padding
-        padded_input_ids = torch.full(
-            (batch_size, max_seq_len),
-            fill_value=pad_token_id,
-            dtype=input_ids.dtype,
-            device=input_ids.device,
-        )
-        padded_attention_mask = torch.zeros(
-            (batch_size, max_seq_len),
-            dtype=attention_mask.dtype,
-            device=attention_mask.device,
+    if input_ids.shape != attention_mask.shape:
+        raise ValueError(
+            f"Tokenizer output shape mismatch: input_ids={tuple(input_ids.shape)} "
+            f"attention_mask={tuple(attention_mask.shape)}"
         )
 
-        for i in range(batch_size):
-            length = int(seq_lengths[i].item())
-            if length > 0:
-                padded_input_ids[i, :length] = input_ids[i, :length]
-                padded_attention_mask[i, :length] = attention_mask[i, :length]
-
-        input_ids = padded_input_ids
-        attention_mask = padded_attention_mask
+    # 如 tokenizer 使用了非目标 pad_token_id，则在 padding 位置归一化
+    if getattr(tokenizer, "pad_token_id", None) is not None and tokenizer.pad_token_id != pad_token_id:
+        input_ids = input_ids.clone()
+        input_ids = input_ids.masked_fill(attention_mask == 0, int(pad_token_id))
 
     return {
         "input_ids": input_ids,

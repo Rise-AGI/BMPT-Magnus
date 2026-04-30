@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from typing import Any
 
 
@@ -75,6 +77,12 @@ def get_vocab_hash(tokenizer: Any) -> str:
         vocab = getattr(tokenizer, "encoder", None)
     if vocab is None:
         return "unknown"
-    vocab_keys = sorted(vocab.keys())
-    vocab_hash = hash(tuple(vocab_keys))
-    return str(abs(vocab_hash))
+
+    if isinstance(vocab, dict):
+        normalized = json.dumps(vocab, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+    else:
+        vocab_keys = sorted(str(key) for key in vocab.keys())
+        normalized = json.dumps(vocab_keys, ensure_ascii=False, separators=(",", ":"))
+
+    digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+    return digest[:16]

@@ -33,7 +33,7 @@ def _training_worker_entry(
     """训练 worker 的入口函数。"""
     os.environ["RANK"] = str(rank)
     os.environ["WORLD_SIZE"] = str(world_size)
-    os.environ["LOCAL_RANK"] = str(local_device)
+    os.environ["LOCAL_RANK"] = "0"
     os.environ["CUDA_VISIBLE_DEVICES"] = str(local_device)
 
     # 初始化该进程的 CUDA 设备
