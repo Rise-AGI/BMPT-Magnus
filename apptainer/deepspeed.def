@@ -2,9 +2,7 @@ Bootstrap: docker
 From: pytorch/pytorch:2.5.1-cuda12.1-cudnn9-devel
 
 %files
-    requirements.common.txt /opt/brisk/requirements.common.txt
-    requirements.torch.txt /opt/brisk/requirements.torch.txt
-    requirements.deepspeed.txt /opt/brisk/requirements.deepspeed.txt
+    requirements.txt /opt/brisk/requirements.txt
 
 %post
     set -e
@@ -20,8 +18,7 @@ From: pytorch/pytorch:2.5.1-cuda12.1-cudnn9-devel
     apt-get install -y --no-install-recommends git libaio-dev
     rm -rf /var/lib/apt/lists/*
 
-    pip install --no-cache-dir -r /opt/brisk/requirements.common.txt
-    DS_BUILD_OPS=0 pip install --no-cache-dir -r /opt/brisk/requirements.deepspeed.txt
+    DS_BUILD_OPS=0 pip install --no-cache-dir -r /opt/brisk/requirements.txt
     pip install --no-cache-dir flash-attn --no-build-isolation || echo "[BMPT] flash-attn install failed; runtime will fallback to default attention"
 
 %environment
@@ -30,4 +27,3 @@ From: pytorch/pytorch:2.5.1-cuda12.1-cudnn9-devel
 
 %runscript
     cd /workspace
-    exec bmpt-train --config train/config.yaml "$@"
