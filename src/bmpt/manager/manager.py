@@ -6,6 +6,7 @@ from typing import Any
 
 from torch.utils.data import DataLoader
 
+from bmpt.core.config import deep_merge_dict
 from bmpt.data.source_loader import build_source_dataloaders
 from bmpt.distributed.worker_manager import spawn_worker_processes
 from bmpt.manager.config_manager import LoadedConfig, load_config_bundle
@@ -25,8 +26,8 @@ class Manager:
         bundle: LoadedConfig = load_config_bundle(config_path)
         self.config_path = bundle.config_path
         self.deepspeed_config_path = bundle.deepspeed_config_path
-        self.config = bundle.config
-        self.deepspeed_config = bundle.deepspeed_config
+        self.config = deep_merge_dict(self.config, bundle.config)
+        self.deepspeed_config = deep_merge_dict(self.deepspeed_config, bundle.deepspeed_config)
         return self.config
 
     def build_source_dataloaders(self) -> dict[str, DataLoader]:

@@ -20,11 +20,12 @@
 - 输出：`dict[str, Any]`
 - 内部行为：
   - 调用 `bmpt.manager.config_manager.load_config_bundle`
-  - 将配置结果写入 Manager 成员
+  - 将本次结果与 Manager 当前配置做深合并，后加载覆盖先加载
   - 返回 `self.config`
 - 说明：
   - 返回的 `self.config` 已移除顶层 `optimizer/scheduler`
   - 对应参数已注入到 `self.deepspeed_config`
+  - 多次调用时，覆盖优先级为：历史已加载配置 < 本次 `config_path` 配置
 
 ## `Manager.build_source_dataloaders()`
 
